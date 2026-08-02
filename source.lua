@@ -625,24 +625,11 @@ function BloxHub:CreateWindow(title, config)
     shadowFrame.Size = UDim2.new(1, 16, 1, 16)
     shadowFrame.Position = UDim2.new(0.5, 0, 0.5, 6)
     shadowFrame.BackgroundColor3 = self.Settings.Theme.Shadow
-    shadowFrame.BackgroundTransparency = 0.55
+    shadowFrame.BackgroundTransparency = 1
     shadowFrame.BorderSizePixel = 0
     shadowFrame.ZIndex = -1
     CreateUICorner(self.Settings.CornerRadius.Large + 4, shadowFrame)
     shadowFrame.Parent = self.Core.ScreenGui
-
-    -- Layered depth: crisp core over the soft aura so the menu reads as lifted.
-    local shadowCore = Instance.new("Frame")
-    shadowCore.Name = "ShadowCore"
-    shadowCore.AnchorPoint = Vector2.new(0.5, 0.5)
-    shadowCore.Size = UDim2.new(1, -8, 1, -8)
-    shadowCore.Position = UDim2.new(0.5, 0, 0.5, 1)
-    shadowCore.BackgroundColor3 = self.Settings.Theme.Shadow
-    shadowCore.BackgroundTransparency = 0.68
-    shadowCore.BorderSizePixel = 0
-    shadowCore.ZIndex = shadowFrame.ZIndex
-    CreateUICorner(self.Settings.CornerRadius.Large + 2, shadowCore)
-    shadowCore.Parent = shadowFrame
 
     local header = Instance.new("Frame")
     header.Name = "Header"
