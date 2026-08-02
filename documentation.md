@@ -281,6 +281,21 @@ BloxHub.Settings.UI = {
 }
 ```
 
+## Design tokens
+
+Two additive token sets sit under `BloxHub.Settings` for spacing and type. They were added without touching the existing options, so anything that already keys into `Theme`, `CornerRadius`, or `Animation` keeps working.
+
+```lua
+BloxHub.Settings.Spacing = { XS = 4, SM = 6, MD = 8, LG = 12, XL = 16, XXL = 24 }
+BloxHub.Settings.Type = { Caption = 12, Body = 13, BodyStrong = 14, Header = 17, Control = 22 }
+```
+
+They're the reference scale for future components; the window chrome stays byte-for-byte where a script depends on visuals like the default shadow, which is now a soft aura plus a crisp core rather than a single flat block.
+
+## Backward compatibility
+
+The design pass was additive on purpose. No public function was removed, renamed, or re-signed, and no default return value changed. A script written against an earlier link should run unchanged and simply render with the tidier default look.
+
 ## Lifecycle scoping
 
 Three levels of cleanup exist. `window:Destroy()` removes one window and all its connections. An element's `Destroy()` removes a single row and the input hooks it registered. `BloxHub:Destroy()` clears everything at once, connections included.

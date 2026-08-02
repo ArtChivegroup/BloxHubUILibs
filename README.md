@@ -17,6 +17,7 @@ Version 3.1.0.
 - Windows can resize from a corner, and you can destroy a whole window, one element, or the framework.
 - Notifications stack down the edge so several can sit on screen together, rather than burying one another.
 - Every method that opens an input hook also cleans it up when you destroy the thing that owns it.
+- The recent design pass was additive: tokens in `Settings.Spacing` and `Settings.Type`, plus a layered window shadow. No function was removed or renamed, so older scripts keep running as-is.
 
 ## Setup
 

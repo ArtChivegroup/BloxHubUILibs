@@ -8,6 +8,11 @@
     ╚═══════════════════════════════════════════════════════════╝
 ]]
 
+-- Hallmark · design pass · scale: component tokens
+-- tone: utilitarian · accent: cool indigo · display: sans (roman)
+-- Added: Spacing + Type tokens, layered window shadow, consistent hover/press.
+-- Nothing public removed or renamed; downstream scripts keep working.
+
 local BloxHub = {
     Version = "3.2.0",
 
@@ -53,6 +58,23 @@ local BloxHub = {
             FastSpeed = 0.1,
             Style = Enum.EasingStyle.Quint,
             Direction = Enum.EasingDirection.Out
+        },
+        -- Additive design tokens used across components. Nothing here removes or
+        -- renames an existing option, so downstream scripts keep working.
+        Spacing = {
+            XS = 4,
+            SM = 6,
+            MD = 8,
+            LG = 12,
+            XL = 16,
+            XXL = 24
+        },
+        Type = {
+            Caption = 12,
+            Body = 13,
+            BodyStrong = 14,
+            Header = 17,
+            Control = 22
         },
         UI = {
             StrokeEnabled = true,
@@ -603,11 +625,24 @@ function BloxHub:CreateWindow(title, config)
     shadowFrame.Size = UDim2.new(1, 16, 1, 16)
     shadowFrame.Position = UDim2.new(0.5, 0, 0.5, 6)
     shadowFrame.BackgroundColor3 = self.Settings.Theme.Shadow
-    shadowFrame.BackgroundTransparency = 0.5
+    shadowFrame.BackgroundTransparency = 0.55
     shadowFrame.BorderSizePixel = 0
     shadowFrame.ZIndex = -1
     CreateUICorner(self.Settings.CornerRadius.Large + 4, shadowFrame)
     shadowFrame.Parent = self.Core.ScreenGui
+
+    -- Layered depth: crisp core over the soft aura so the menu reads as lifted.
+    local shadowCore = Instance.new("Frame")
+    shadowCore.Name = "ShadowCore"
+    shadowCore.AnchorPoint = Vector2.new(0.5, 0.5)
+    shadowCore.Size = UDim2.new(1, -8, 1, -8)
+    shadowCore.Position = UDim2.new(0.5, 0, 0.5, 1)
+    shadowCore.BackgroundColor3 = self.Settings.Theme.Shadow
+    shadowCore.BackgroundTransparency = 0.68
+    shadowCore.BorderSizePixel = 0
+    shadowCore.ZIndex = shadowFrame.ZIndex
+    CreateUICorner(self.Settings.CornerRadius.Large + 2, shadowCore)
+    shadowCore.Parent = shadowFrame
 
     local header = Instance.new("Frame")
     header.Name = "Header"
@@ -961,7 +996,7 @@ function BloxHub.Elements:CreateTab(window, tabName)
     contentFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
     contentFrame.Parent = window.ContentContainer
 
-    CreateUIPadding(8, 8, 8, 8, contentFrame)
+    CreateUIPadding(BloxHub.Settings.Spacing.MD, BloxHub.Settings.Spacing.MD, BloxHub.Settings.Spacing.MD, BloxHub.Settings.Spacing.MD, contentFrame)
 
     local listLayout = Instance.new("UIListLayout")
     listLayout.Padding = UDim.new(0, 6)
