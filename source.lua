@@ -2171,12 +2171,18 @@ end
 
 local NOTIF_START_Y = 0.05
 local NOTIF_STAGGER = 0.11
+local NOTIF_WIDTH = 300
+-- With AnchorPoint (1, 0) the X offset anchors from the right edge,
+-- so a small NEGATIVE offset keeps it on-screen; a large POSITIVE offset
+-- hides it toward the right (for the slide-in/out).
+local NOTIF_MARGIN_X = 12
+local NOTIF_OFFSCREEN_X = 330
 
 local function ReflowNotifications()
     for index, notif in ipairs(BloxHub.State.Notifications) do
         if notif.Frame and notif.Frame.Parent then
             local y = NOTIF_START_Y + (index - 1) * NOTIF_STAGGER
-            Tween(notif.Frame, {Position = UDim2.new(1, -310, y, 0)}, 0.3)
+            Tween(notif.Frame, {Position = UDim2.new(1, -NOTIF_MARGIN_X, y, 0)}, 0.3)
         end
     end
 end
@@ -2194,9 +2200,9 @@ function BloxHub:Notify(title, message, duration, notifType)
 
     local notification = Instance.new("Frame")
     notification.Name = "Notification"
-    notification.Size = UDim2.new(0, 300, 0, 80)
+    notification.Size = UDim2.new(0, NOTIF_WIDTH, 0, 80)
     notification.AnchorPoint = Vector2.new(1, 0)
-    notification.Position = UDim2.new(1, 10, NOTIF_START_Y, 0)
+    notification.Position = UDim2.new(1, NOTIF_OFFSCREEN_X, NOTIF_START_Y, 0)
     notification.BackgroundColor3 = self.Settings.Theme.Primary
     notification.BorderSizePixel = 0
     notification.ZIndex = 300
@@ -2250,11 +2256,11 @@ function BloxHub:Notify(title, message, duration, notifType)
     ReflowNotifications()
 
     -- Slide in
-    Tween(notification, {Position = UDim2.new(1, -310, NOTIF_START_Y, 0)}, 0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+    Tween(notification, {Position = UDim2.new(1, -NOTIF_MARGIN_X, NOTIF_START_Y, 0)}, 0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
     task.delay(duration, function()
         if not notification or not notification.Parent then return end
-        Tween(notification, {Position = UDim2.new(1, 10, NOTIF_START_Y, 0)}, 0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        Tween(notification, {Position = UDim2.new(1, NOTIF_OFFSCREEN_X, NOTIF_START_Y, 0)}, 0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
         task.wait(0.3)
         if notification and notification.Parent then
             notification:Destroy()
