@@ -157,7 +157,7 @@ mainTab:AddLabel("plain line of text")
 
 ## Popups
 
-`window:CreatePopup(title)` returns a `popup` with `Show()` and `Hide()`. Clicking the darkened backdrop behind it closes it.
+`Window:CreatePopup(title, config)` returns a `popup` with `Show()` and `Hide()`. Clicking the invisible backdrop behind it (outside the popup box) closes it; the backdrop adds no shading.
 
 ```lua
 local p = MainWindow:CreatePopup("Confirm")

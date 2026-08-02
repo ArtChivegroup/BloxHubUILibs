@@ -1767,7 +1767,7 @@ function BloxHub.Elements:CreatePopup(window, title, options)
     overlay.Name = "PopupOverlay"
     overlay.Size = UDim2.new(1, 0, 1, 0)
     overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    overlay.BackgroundTransparency = 0.5
+    overlay.BackgroundTransparency = 1
     overlay.BorderSizePixel = 0
     overlay.Visible = false
     overlay.ZIndex = 100
