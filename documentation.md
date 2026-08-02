@@ -9,9 +9,10 @@ A single-file, component UI library for Roblox. It runs on the engine's own widg
 - It uses UIStroke, UIGradient, and other native widgets rather than fetched images.
 - Sliders chase touch input as well as mouse.
 - Theme swaps, custom colors, and loaded configs repaint every component live.
-- Windows can resize from a corner, and you can remove a window, a tab, or a single element.
+- Windows resize from a corner, and you can remove a window, a tab, or a single element.
 - Notifications pile up in a stack without hiding each other.
 - Cleanup methods free the input connections those elements opened.
+- Layout re-flows when the client window resizes or a phone rotates, web-style.
 
 ## Loading
 
@@ -211,6 +212,39 @@ BloxHub.Device.IsConsole
 BloxHub.Device.IsDesktop
 BloxHub.Device.TouchEnabled
 ```
+
+## Responsive layout
+
+A thin media-query layer sits under the UI. At load it runs on `BloxHub.Screen`, which holds the current viewport, a breakpoint name, the orientation, and a density scale. Windows size themselves against it, and when the client window resizes or a phone rotates, every open window re-flows and pulls itself back on-screen.
+
+```lua
+BloxHub.Screen.Breakpoint     -- "phone" / "tablet" / "console" / "desktop"
+BloxHub.Screen.Orientation    -- "landscape" / "portrait"
+BloxHub.Screen.ViewportSize   -- Vector2 of the camera viewport
+BloxHub.Screen.Scale          -- density factor (1 on desktop)
+```
+
+Public helpers you can call yourself.
+
+```lua
+local half = BloxHub:RP(50)                      -- scale a pixel size for the screen
+BloxHub:MeasureScreen()                          -- rebuild the telemetry
+local fit = BloxHub:Fit(560, 460)               -- clamp sizes to the viewport
+BloxHub:ResizeWindows()                        -- re-flow all windows now
+```
+
+To react to resizing like you would to a browser's resize event:
+
+```lua
+local handle = BloxHub:OnScreenChange(function(screen)
+    print("now on", screen.Breakpoint, screen.Orientation)
+end)
+
+-- later:
+handle:Disconnect()
+```
+
+Windows also expose `window:Relayout()`, which clamps the window to the viewport and nudges it back on-screen. It runs automatically on viewport changes.
 
 ## Theme colors
 

@@ -240,8 +240,16 @@ local deviceType = BloxHub.Device.IsMobile and "Mobile" or
                    BloxHub.Device.IsTablet and "Tablet" or 
                    BloxHub.Device.IsConsole and "Console" or "Desktop"
 settingsTab:AddLabel("Current Device: " .. deviceType)
+settingsTab:AddLabel("Breakpoint: " .. BloxHub.Screen.Breakpoint .. " · " .. BloxHub.Screen.Orientation)
+settingsTab:AddLabel("Viewport: " .. BloxHub.Screen.ViewportSize.X .. "x" .. BloxHub.Screen.ViewportSize.Y)
+settingsTab:AddLabel("Density Scale: " .. string.format("%.2f", BloxHub.Screen.Scale))
 settingsTab:AddLabel("Touch Enabled: " .. tostring(BloxHub.Device.TouchEnabled))
 settingsTab:AddLabel("Framework Version: " .. BloxHub.Version)
+
+-- Re-act on window resize / phone rotation (like a web resize/ResizeObserver).
+local screenHandle = BloxHub:OnScreenChange(function(screen)
+    settingsTab:AddLabel("Viewport changed: " .. screen.ViewportSize.X .. "x" .. screen.ViewportSize.Y .. " (" .. screen.Breakpoint .. ")")
+end)
 
 settingsTab:AddDivider()
 

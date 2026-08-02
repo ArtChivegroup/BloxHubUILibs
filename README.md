@@ -11,7 +11,7 @@ Version 3.1.0.
 ## What it does
 
 - One file. No extra assets, no setup past the `loadstring` call.
-- Layout and size drop in based on which device you're on at load.
+- Layout drops in based on which device you're on at load, then tracks the effects of resizing. On `BloxHub.Screen` you get the viewport, breakpoint, orientation, and a density scale.
 - Sliders accept touch; dragging them feels native either way.
 - `SetTheme`, `CustomizeTheme`, and a saved config each repaint the live components in a single call.
 - Windows can resize from a corner, and you can destroy a whole window, one element, or the framework.
@@ -40,6 +40,8 @@ The raw URL is fetched over HTTPS. On mobile and consoles the width clamps so a 
 The full method list and parameter tables live in `documentation.md`. Quick summary.
 
 Core calls, `BloxHub:CreateWindow`, `BloxHub:Notify`, `BloxHub:CreateFloatingIcon`, `BloxHub:GetThemes`, `BloxHub:SetTheme`, `BloxHub:CustomizeTheme`, `BloxHub:SaveConfig`, `BloxHub:LoadConfig`, `BloxHub:Destroy`.
+
+Responsive, `BloxHub:RP`, `BloxHub:MeasureScreen`, `BloxHub:Fit`, `BloxHub:ResizeWindows`, `BloxHub:OnScreenChange`, plus the `BloxHub.Screen` table.
 
 Window: `CreateTab`, `Toggle`, `Show`, `Hide`, `SetTitle`, `SetSize`, `SetPosition`, `Destroy`, `CreatePopup`, `RegisterHotkey`.
 

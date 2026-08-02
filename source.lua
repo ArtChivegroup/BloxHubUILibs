@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════╗
-    ║           BloxHub GUI Framework v3.1                      ║
+    ║           BloxHub GUI Framework v3.2                      ║
     ║           Universal Roblox GUI System                     ║
     ║           Author: BloxHub                                 ║
     ║           Pure Roblox Engine UI Components                ║
@@ -9,7 +9,7 @@
 ]]
 
 local BloxHub = {
-    Version = "3.1.0",
+    Version = "3.2.0",
 
     Core = {
         Initialized = false,
@@ -81,6 +81,14 @@ local BloxHub = {
         IsConsole = false,
         IsDesktop = true,
         TouchEnabled = false
+    },
+
+    Screen = {
+        ViewportSize = Vector2.new(1920, 1080),
+        Breakpoint = "desktop",
+        Orientation = "landscape",
+        Scale = 1,
+        Hooks = {}
     }
 }
 
@@ -303,19 +311,95 @@ local function CreateAccentLine(parent, position)
     return line
 end
 
-local function GetAdaptiveSize(baseWidth, baseHeight)
-    if BloxHub.Device.IsMobile then
-        local viewportSize = GetViewportSize()
-        return UDim2.new(0.95, 0, 0, math.min(baseHeight * 1.1, viewportSize.Y * 0.85))
-    elseif BloxHub.Device.IsTablet then
-        local viewportSize = GetViewportSize()
-        return UDim2.new(
-            0, math.min(baseWidth * 1.15, viewportSize.X * 0.9),
-            0, math.min(baseHeight * 1.1, viewportSize.Y * 0.85)
-        )
+-- ═══════════════════════════════════════════════════════════
+-- RESPONSIVE ENGINE (web-style media-query + density scaling)
+-- ═══════════════════════════════════════════════════════════
+
+-- Converts a "logical" pixel size into one scaled for the current screen.
+function BloxHub:RP(px)
+    local s = self.Screen.Scale
+    if s == 1 then return px end
+    return math.max(1, math.round(px * s))
+end
+
+-- Rebuild the screen telemetry each time the viewport changes.
+function BloxHub:MeasureScreen()
+    local vs = GetViewportSize()
+    local w = vs.X
+
+    local bp
+    if self.Device.IsConsole then
+        bp = "console"
+    elseif self.Device.IsTablet then
+        bp = "tablet"
+    elseif self.Device.IsMobile then
+        bp = "phone"
     else
-        return UDim2.new(0, baseWidth, 0, math.min(baseHeight, GetViewportSize().Y * 0.9))
+        bp = "desktop"
     end
+
+    self.Screen.ViewportSize = vs
+    self.Screen.Breakpoint = bp
+    self.Screen.Orientation = (w >= vs.Y) and "landscape" or "portrait"
+    self.Screen.Ratio = w / math.max(vs.Y, 1)
+
+    -- Density factor per breakpoint. Desktop stays 1:1 (pixels already read well);
+    -- phones/tablets scale up so controls and text stay a usable size.
+    local scale
+    if bp == "phone" then
+        scale = math.clamp(w / 360, 0.82, 1.35)
+    elseif bp == "tablet" then
+        scale = math.clamp(w / 768, 0.9, 1.4)
+    else
+        scale = 1
+    end
+    self.Screen.Scale = scale
+
+    return self.Screen
+end
+
+-- Returns a fitted size for a window, clamped to the viewport.
+function BloxHub:Fit(baseWidth, baseHeight)
+    local vs = GetViewportSize()
+    local S = (self.Screen.Scale == nil or self.Screen.Scale == 0) and 1 or self.Screen.Scale
+    local w = math.min(baseWidth * S, vs.X * 0.92)
+    local h = math.min(baseHeight * S, vs.Y * 0.85)
+    return {
+        Width = math.round(math.max(w, 220)),
+        Height = math.round(math.max(h, 140)),
+        ViewportW = vs.X,
+        ViewportH = vs.Y
+    }
+end
+
+local function GetAdaptiveSize(baseWidth, baseHeight)
+    BloxHub:MeasureScreen()
+    local fit = BloxHub:Fit(baseWidth, baseHeight)
+    return UDim2.new(0, fit.Width, 0, fit.Height)
+end
+
+-- Re-flow every open window and notify external resize hooks.
+function BloxHub:ResizeWindows()
+    self:MeasureScreen()
+    for _, window in pairs(self.State.Windows) do
+        if window and window.Relayout then
+            pcall(window.Relayout)
+        end
+    end
+    for _, hook in ipairs(self.Screen.Hooks) do
+        pcall(hook, self.Screen)
+    end
+end
+
+-- Subscribe to viewport resize / orientation change. Returns a handle to disconnect.
+function BloxHub:OnScreenChange(callback)
+    table.insert(self.Screen.Hooks, callback)
+    return {
+        Disconnect = function()
+            local i = table.find(self.Screen.Hooks, callback)
+            if i then table.remove(self.Screen.Hooks, i) end
+        end
+    }
 end
 
 local function GetMousePosition()
@@ -368,6 +452,18 @@ function BloxHub:Init()
 
     self.Core.ScreenGui = screenGui
     self.Core.Initialized = true
+
+    -- First pass of screen telemetry used by the responsive layout
+    self:MeasureScreen()
+
+    -- Watch the viewport and re-flow on resize / orientation change.
+    self.Screen.Watch = RunService.RenderStepped:Connect(function()
+        local vs = GetViewportSize()
+        if vs ~= self.Screen.ViewportSize then
+            self:ResizeWindows()
+        end
+    end)
+    AddConnection(self.Screen.Watch)
 
     -- Setup input handling
     self:SetupInputHandling()
@@ -442,6 +538,11 @@ function BloxHub:Destroy()
     self.State.Windows = {}
     self.State.Notifications = {}
     self.State.ThemeCallbacks = {}
+    self.Screen.Hooks = {}
+    if self.Screen.Watch then
+        pcall(function() self.Screen.Watch:Disconnect() end)
+        self.Screen.Watch = nil
+    end
 end
 
 -- ═══════════════════════════════════════════════════════════
@@ -457,6 +558,8 @@ function BloxHub:CreateWindow(title, config)
 
     local window = {
         Title = title or "BloxHub Window",
+        BaseWidth = baseWidth,
+        BaseHeight = baseHeight,
         Size = adaptiveSize,
         Position = config.Position or UDim2.new(0.5, 0, 0.5, 0),
         Resizable = config.Resizable or false,
@@ -678,6 +781,38 @@ function BloxHub:CreateWindow(title, config)
     end
 
     -- Window methods
+    function window:Relayout()
+        if not self.Frame or not self.Frame.Parent then return end
+        local fit = BloxHub:Fit(self.BaseWidth, self.BaseHeight)
+
+        -- Keep a manual resize if it still fits; otherwise drop to the fitted size.
+        local cur = self.Frame.AbsoluteSize
+        local w = (cur.X > 0) and math.min(cur.X, fit.Width) or fit.Width
+        local h = (cur.Y > 0) and math.min(cur.Y, fit.Height) or fit.Height
+        w = math.max(w, 220)
+        h = math.max(h, 140)
+
+        self.Size = UDim2.new(0, w, 0, h)
+        self.Frame.Size = self.Size
+        if self.Shadow then self.Shadow.Size = UDim2.new(1, 16, 1, 16) end
+        if contentContainer then contentContainer.Size = UDim2.new(1, -24, 1, -115) end
+
+        -- Pull the window back on-screen if the viewport shrank.
+        local vsW, vsH = fit.ViewportW, fit.ViewportH
+        local p = self.Frame.AbsolutePosition
+        local shiftX, shiftY = 0, 0
+        if p.X < 0 then shiftX = -p.X end
+        if p.Y < 0 then shiftY = -p.Y end
+        if p.X + w > vsW then shiftX = vsW - (p.X + w) end
+        if p.Y + h > vsH then shiftY = vsH - (p.Y + h) end
+        if shiftX ~= 0 or shiftY ~= 0 then
+            local pos = self.Frame.Position
+            self.Frame.Position = UDim2.new(pos.X.Scale, pos.X.Offset + shiftX, pos.Y.Scale, pos.Y.Offset + shiftY)
+        end
+    end
+
+    window:Relayout()
+
     function window:Toggle()
         self.Visible = not self.Visible
         self.Frame.Visible = self.Visible
@@ -908,7 +1043,7 @@ end
 function BloxHub.Elements:CreateButton(tab, text, callback)
     local button = Instance.new("TextButton")
     button.Name = "Button_" .. text
-    button.Size = UDim2.new(1, 0, 0, BloxHub.Device.IsMobile and 42 or 38)
+    button.Size = UDim2.new(1, 0, 0, BloxHub:RP(BloxHub.Device.IsMobile and 42 or 38))
     button.BackgroundColor3 = BloxHub.Settings.Theme.Secondary
     button.Text = text
     button.TextColor3 = BloxHub.Settings.Theme.Text
@@ -923,7 +1058,7 @@ function BloxHub.Elements:CreateButton(tab, text, callback)
     button.MouseButton1Click:Connect(function()
         Tween(button, {Size = UDim2.new(1, -4, 0, BloxHub.Device.IsMobile and 40 or 36)}, 0.05)
         task.delay(0.05, function()
-            Tween(button, {Size = UDim2.new(1, 0, 0, BloxHub.Device.IsMobile and 42 or 38)}, 0.1)
+            Tween(button, {Size = UDim2.new(1, 0, 0, BloxHub:RP(BloxHub.Device.IsMobile and 42 or 38))}, 0.1)
         end)
         if callback then pcall(callback) end
     end)
@@ -946,7 +1081,7 @@ end
 function BloxHub.Elements:CreateToggle(tab, text, default, callback)
     local toggleState = default or false
 
-    local container = RowContainer(tab, "Toggle_" .. text, BloxHub.Device.IsMobile and 42 or 38)
+    local container = RowContainer(tab, "Toggle_" .. text, BloxHub:RP(BloxHub.Device.IsMobile and 42 or 38))
 
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(1, -65, 1, 0)
@@ -1053,7 +1188,7 @@ function BloxHub.Elements:CreateSlider(tab, text, min, max, default, callback)
 
     local container = Instance.new("Frame")
     container.Name = "Slider_" .. text
-    container.Size = UDim2.new(1, 0, 0, BloxHub.Device.IsMobile and 56 or 52)
+    container.Size = UDim2.new(1, 0, 0, BloxHub:RP(BloxHub.Device.IsMobile and 56 or 52))
     container.BackgroundColor3 = BloxHub.Settings.Theme.Secondary
     container.BorderSizePixel = 0
     container.Parent = tab.Container
@@ -1212,7 +1347,7 @@ function BloxHub.Elements:CreateKeybind(tab, text, defaultKey, callback)
     local currentInputType = nil
     local listening = false
 
-    local container = RowContainer(tab, "Keybind_" .. text, BloxHub.Device.IsMobile and 42 or 38)
+    local container = RowContainer(tab, "Keybind_" .. text, BloxHub:RP(BloxHub.Device.IsMobile and 42 or 38))
 
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(0.55, 0, 1, 0)
@@ -1496,7 +1631,7 @@ function BloxHub.Elements:CreateDropdown(tab, text, options, callback)
 end
 
 function BloxHub.Elements:CreateTextBox(tab, text, placeholder, callback)
-    local container = RowContainer(tab, "TextBox_" .. text, BloxHub.Device.IsMobile and 42 or 38)
+    local container = RowContainer(tab, "TextBox_" .. text, BloxHub:RP(BloxHub.Device.IsMobile and 42 or 38))
 
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(0.35, 0, 1, 0)
