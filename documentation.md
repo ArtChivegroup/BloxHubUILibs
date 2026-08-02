@@ -1,41 +1,32 @@
 # BloxHub GUI Framework v3.1
 
-**BloxHub** adalah library GUI yang powerful, single-file, dan berbasis komponen untuk Roblox. Didesain minimalis, highly customizable, dan mudah diintegrasikan ke project manapun. Framework v3.1 menggunakan **pure Roblox engine UI components** untuk kompatibilitas lintas perangkat (PC, Mobile, Tablet, Console).
+A single-file, component UI library for Roblox. It runs on the engine's own widgets, which keeps it usable on PC, mobile, tablet, and console without you shipping separate builds. Version 3.1.0.
 
-## ✨ Features
+## Features
 
--   **Single-File Library**: Tidak ada struktur file kompleks. Load satu file dan siap digunakan.
--   **Cross-Device Compatible**: Otomatis menyesuaikan ukuran dan input untuk PC, Mobile, Tablet, dan Console.
--   **Pure Roblox Engine UI**: Menggunakan UIStroke, UIGradient, dan komponen native Roblox.
--   **Touch Support**: Slider dan komponen lain mendukung input sentuh.
--   **Modern Design**: Gradient backgrounds, accent lines, smooth animations.
--   **Live Theme System**: Ganti tema / custom warna — **semua komponen langsung ter-warnai ulang otomatis**.
--   **Configuration Persistence**: Simpan dan load preferensi user secara otomatis.
--   **Built-in Notification System**: Notifikasi modern dengan **stacking** (tidak saling menimpa).
--   **Dynamic Inputs**: Keybind system yang support keyboard dan mouse.
--   **Window Resizable**: Resize manual lewat sudut kanan-bawah (opsional).
--   **Full Cleanup**: `Window:Destroy()`, `element:Destroy()`, dan `BloxHub:Destroy()`.
+- The whole library is one `source.lua`; there's nothing to wire together.
+- Window size and input adapt from a device check that runs at load.
+- It uses UIStroke, UIGradient, and other native widgets rather than fetched images.
+- Sliders chase touch input as well as mouse.
+- Theme swaps, custom colors, and loaded configs repaint every component live.
+- Windows can resize from a corner, and you can remove a window, a tab, or a single element.
+- Notifications pile up in a stack without hiding each other.
+- Cleanup methods free the input connections those elements opened.
 
-## 🚀 Getting Started
-
-### 1. Load the Library
+## Loading
 
 ```lua
 local BloxHub = loadstring(game:HttpGet("https://raw.githubusercontent.com/ArtChivegroup/BloxHubUILibs/refs/heads/main/source.lua"))()
 ```
 
-### 2. Create Your First Window
+## A window from scratch
 
 ```lua
 local MainWindow = BloxHub:CreateWindow("My First UI", {
-    Size = UDim2.new(0, 550, 0, 450), -- Optional, auto-adapts untuk mobile
-    Resizable = true                   -- Optional, izinkan user resize
+    Size = UDim2.new(0, 550, 0, 450),
+    Resizable = true
 })
-```
 
-### 3. Add Tabs and Components
-
-```lua
 local mainTab = MainWindow:CreateTab("Main")
 
 mainTab:AddButton("Click Me!", function()
@@ -51,208 +42,184 @@ mainTab:AddSlider("Speed", 1, 100, 50, function(value)
 end)
 ```
 
-## 📚 API Reference
+The `Size` is a hint. On a phone the width clamps to fit, and the height shrinks too.
 
-### Core API
+## CreateWindow
 
-#### `BloxHub:CreateWindow(title, [config])`
-Membuat window baru dengan adaptive sizing untuk mobile.
+`BloxHub:CreateWindow(title, config)` makes a window and centers it.
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `title` | string | Judul window |
-| `config.Size` | UDim2 | Ukuran window (auto-adapt untuk mobile) |
-| `config.Position` | UDim2 | Posisi window (default: centered) |
-| `config.Resizable` | boolean | Izinkan resize via sudut kanan-bawah (default `false`) |
-| `config.MinSize` | UDim2 | Ukuran minimum saat resize (default `320x200`) |
-| `config.Visible` | boolean | Muncul tidaknya window awal (default `true`) |
+| Key | Type | What it does |
+|-----|------|--------------|
+| `title` | string | The header text. Extra-left of the logo dot. |
+| `config.Size` | UDim2 | Start size; adapts on mobile. |
+| `config.Position` | UDim2 | Where it goes. Defaults to centered. |
+| `config.Resizable` | boolean | Lets a user drag from the bottom-right corner. Off by default. |
+| `config.MinSize` | UDim2 | Floor for resizing. Defaults to 320x200. |
+| `config.Visible` | boolean | Show at load or not. Defaults to true. |
 
-#### `Window:CreateTab(name)`
-Membuat tab baru. Tab pertama otomatis aktif.
+## Window methods
 
-#### `Window:RegisterHotkey(name, keyCode, callback)`
-Register hotkey untuk trigger callback. Mengembalikan object kontrol hotkey.
+`CreateTab(name)` appends a tab; the first one activates itself. `Toggle`, `Show`, and `Hide` switch visibility, and Toggle plus Hide bring back the floating icon.
+
+`SetTitle(newTitle)` rewrites the header text. `SetSize(w, h)` and `SetPosition(udim2)` move the window from code. `Destroy()` removes the window, its shadow, its floating icon, and every connection it opened.
+
+`RegisterHotkey(name, keyCode, callback)` binds a key. It hands back a control object.
 
 ```lua
-local hotkey = MainWindow:RegisterHotkey("ToggleGUI", Enum.KeyCode.RightShift, function()
+local hk = MainWindow:RegisterHotkey("ToggleGUI", Enum.KeyCode.RightShift, function()
     MainWindow:Toggle()
 end)
 
-hotkey:Disable()  -- Nonaktifkan hotkey
-hotkey:Enable()   -- Aktifkan kembali
+hk:Disable()
+hk:Enable()
 ```
 
-#### `Window:Toggle()` / `Window:Show()` / `Window:Hide()`
-Mengontrol visibilitas window (Toggle/Hide otomatis menampilkan floating icon).
+`CreatePopup(title, config)` builds a modal. See the Popup section below.
 
-#### `Window:SetTitle(newTitle)`
-Mengganti judul window.
+## Component API
 
-#### `Window:SetSize(width, height)`
-Resize window secara programmatic.
+Every row component returns a table with `Container` (the frame) and `Destroy()` (removes the row and frees whatever it held).
 
-#### `Window:SetPosition(udim2)`
-Mengubah posisi window.
+### AddButton
 
-#### `Window:Destroy()`
-Hapus window beserta semua koneksinya dan floating icon-nya.
+`tab:AddButton(text, callback)` puts a full-width button with a click animation.
 
-### Component API
+### AddToggle
 
-Semua komponen di bawah mengembalikan object. Komponen yang berupa `row` mengembalikan table dengan:
-- `Container` — Frame utama.
-- `Destroy()` — Hapus elemen & bebaskan koneksinya.
-
-#### `Tab:AddButton(text, callback)`
-Tombol dengan click animation.
-
-#### `Tab:AddToggle(text, [default], callback)`
-Toggle switch dengan pill design dan bounce animation.
+`tab:AddToggle(text, default, callback)` renders a pill switch. The knob bounces when it flips.
 
 ```lua
-local toggle = mainTab:AddToggle("ESP", false, function(enabled)
-    -- Your code
-end)
+local t = mainTab:AddToggle("ESP", false, function(on) end)
 
-toggle:GetValue()      -- Returns boolean
-toggle:SetValue(true)  -- Set toggle state
-toggle:Destroy()       -- Hapus elemen
+t:GetValue()       -- boolean
+t:SetValue(true)   -- flip it from code
+t:Destroy()
 ```
 
-#### `Tab:AddSlider(text, min, max, [default], callback)`
-Slider dengan draggable knob dan touch support.
+### AddSlider
+
+`tab:AddSlider(text, min, max, default, callback)` is a draggable track with a knob and a value readout. The value snaps to whole numbers.
 
 ```lua
-local slider = mainTab:AddSlider("FOV", 70, 120, 90, function(value)
-    workspace.CurrentCamera.FieldOfView = value
+local s = mainTab:AddSlider("FOV", 70, 120, 90, function(v)
+    workspace.CurrentCamera.FieldOfView = v
 end)
 
-slider:GetValue()     -- Returns number
-slider:SetValue(100)  -- Set slider value
-slider:Destroy()
+s:GetValue()
+s:SetValue(100)
 ```
 
-#### `Tab:AddKeybind(text, defaultKey, callback)`
-Keybind picker dengan visual feedback saat listening.
+### AddKeybind
+
+`tab:AddKeybind(text, defaultKey, callback)` gives you a key that, when clicked, turns the label into "..." and waits for input. On a keyboard it captures the next non-repressed key; on mobile it's still the same dialog.
 
 ```lua
-mainTab:AddKeybind("Aimbot Key", Enum.KeyCode.E, function(key, input, name)
-    print("New key:", name)
-end)
-
-local kb = mainTab:AddKeybind("Key", Enum.KeyCode.F, function() end)
-kb:SetKey(Enum.KeyCode.G)   -- Set key programmatic
-kb:GetKey()                 -- Mengembalikan keyCode, inputType
+local kb = mainTab:AddKeybind("Aim Key", Enum.KeyCode.E, function(k, input, name) end)
+kb:SetKey(Enum.KeyCode.G)
+local k, inputType = kb:GetKey()
 ```
 
-#### `Tab:AddDropdown(text, options, callback)`
-Dropdown menu dengan selected indicator.
+### AddDropdown
+
+`tab:AddDropdown(text, options, callback)` lists choices; the selected one keeps a small accent bar. It opens upward so it never clips behind the screen edge.
 
 ```lua
-local dd = mainTab:AddDropdown("Target", {"Head", "Torso", "Random"}, function(choice)
-    print("Selected:", choice)
-end)
-
-dd:GetValue()         -- String selected
-dd:SetValue("Torso")  -- Ganti nilai
-dd:Refresh({"New", "List"})  -- Ganti opsi
+local dd = mainTab:AddDropdown("Target", {"Head", "Torso", "Random"}, function(sel) end)
+dd:GetValue()
+dd:SetValue("Torso")
+dd:Refresh({"New", "List of options"})
 dd:Destroy()
 ```
 
-#### `Tab:AddTextBox(text, [placeholder], callback)`
-Input text dengan focus animation.
+### AddTextBox
+
+`tab:AddTextBox(text, placeholder, callback)` is a text field. `callback(text, enterPressed)` runs when the field loses focus, and `enterPressed` tells you whether Enter was hit.
 
 ```lua
-local tb = mainTab:AddTextBox("Username", "Enter name...", function(text, enterPressed)
-    if enterPressed then print("Submitted:", text) end
-end)
-
-tb:GetValue()  -- String current text
+local tb = mainTab:AddTextBox("Username", "type a name", function(text, enter) end)
+tb:GetValue()
+tb:SetValue("something")
 ```
 
-#### `Tab:AddLabel(text, [config])`
-Label text. Bold labels mendapat accent bar.
+### AddLabel
+
+`tab:AddLabel(text, config)` outputs static text. Setting `Bold = true` gives it an accent bar on the left and pushes the text over.
 
 ```lua
-mainTab:AddLabel("Section Title", { Bold = true, TextSize = 16 })
-mainTab:AddLabel("Description text")
+mainTab:AddLabel("Section", { Bold = true })
+mainTab:AddLabel("plain line of text")
 ```
 
-#### `Tab:AddDivider()`
-Pembatas visual dengan proper spacing.
+### AddDivider
 
-### Popup API
+`tab:AddDivider()` is a horizontal rule with padding around it.
 
-#### `Window:CreatePopup(title, [config])`
-Modal popup dengan overlay yang bisa ditutup dengan klik backdrop.
+## Popups
+
+`window:CreatePopup(title)` returns a `popup` with `Show()` and `Hide()`. Clicking the darkened backdrop behind it closes it.
 
 ```lua
-local popup = MainWindow:CreatePopup("Confirm")
-popup:AddLabel("Are you sure?")
-popup:AddButton("Yes", function() popup:Hide() end)
-popup:AddButton("No", function() popup:Hide() end)
-popup:Show()
--- popup:Hide() / popup:Destroy()
+local p = MainWindow:CreatePopup("Confirm")
+p:AddLabel("Are you sure?")
+p:AddButton("Yes", function() p:Hide() end)
+p:AddButton("No", function() p:Hide() end)
+p:Show()
 ```
 
-### Utility Functions
+## Utilities
 
-#### `BloxHub:Notify(title, message, [duration], [type])`
-Tampilkan notifikasi. Type: `"Info"`, `"Success"`, `"Warning"`, `"Error"`. Notifications **menumpuk** ke bawah sehingga tidak saling menimpa.
+### Notify
 
-#### `BloxHub:CreateFloatingIcon(window, [config])`
-Buat floating icon / toggle. Otomatis sinkron dengan Toggle/Hide/Show window.
+`BloxHub:Notify(title, message, duration, type)` slides a toast in from the right. Types `Info`, `Success`, `Warning`, `Error`. Toasts stack downward so several can serve at once.
+
+### FloatingIcon
+
+`BloxHub:CreateFloatingIcon(window, config)` places a grab-the-bar toggle that stays on screen when the menu is hidden.
 
 ```lua
 BloxHub:CreateFloatingIcon(MainWindow, {
-    Text = "Toggle UI",
+    Text = "Puzzle Piece",
     ShowOnMinimize = true
 })
 ```
 
-#### `BloxHub:GetThemes()`
-Mengembalikan daftar nama theme bawaan (mis. `"Dark"`, `"Light"`, `"Purple"`, `"Green"`).
+### Themes
 
-#### `BloxHub:SetTheme(themeName)`
-Ganti tema. **Semua window & komponen ter-warna ulang otomatis.**
-
-#### `BloxHub:CustomizeTheme(customColors)`
-Ubah sebagian warna theme dan recolor semua komponen secara live.
+`BloxHub:GetThemes()` returns the built-in names. `SetTheme(name)` applies one and repaints everything that's already on screen. `CustomizeTheme({ key = color })` alters specific keys the same way.
 
 ```lua
-BloxHub:CustomizeTheme({ Accent = Color3.fromRGB(255, 128, 0), Text = Color3.new(1, 1, 1) })
+BloxHub:SetTheme("Green")
+BloxHub:CustomizeTheme({ Accent = Color3.fromRGB(255, 90, 0) })
 ```
 
-#### `BloxHub:SaveConfig([name])` / `BloxHub:LoadConfig([name])`
-Simpan / load konfigurasi (theme + window) ke file `writefile` atau memori.
+### Config
 
-#### `BloxHub:Destroy()`
-Bersihkan **semua** resource framework: disconnect semua koneksi input, destroy ScreenGui, hapus semua window dan notifikasi. Aman dipanggil untuk reset.
+`SaveConfig(name)` writes JSON through `writefile` and, if that fails, keeps it in memory. `LoadConfig(name)` reads it back and reassigns the theme.
 
-## 📱 Device Detection
+### Destroy
 
-Framework otomatis mendeteksi device dan menyesuaikan UI:
+`BloxHub:Destroy()` disconnects every input hook the framework opened, destroys the ScreenGui, and drops all windows and notifications. The framework can be run again afterwards with a fresh `Init`.
+
+## Device detection
+
+These live on `BloxHub.Device`.
 
 ```lua
-BloxHub.Device.IsMobile   -- true jika mobile phone
-BloxHub.Device.IsTablet   -- true jika tablet
-BloxHub.Device.IsConsole  -- true jika console (Xbox)
-BloxHub.Device.IsDesktop  -- true jika PC
-BloxHub.Device.TouchEnabled -- true jika touch supported
+BloxHub.Device.IsMobile
+BloxHub.Device.IsTablet
+BloxHub.Device.IsConsole
+BloxHub.Device.IsDesktop
+BloxHub.Device.TouchEnabled
 ```
 
-## 🎨 Theme System (v3.1)
-
-Empat theme bawaan: `"Dark"`, `"Light"`, `"Purple"`, `"Green"`. Setiap theme menspesifikasikan semua warna di bawah, termasuk **gradient**, **border** dan **shadow**, sehingga recolor konsisten.
+## Theme colors
 
 ```lua
 BloxHub.Settings.Theme = {
     Background = Color3.fromRGB(12, 12, 16),
     BackgroundGradient = Color3.fromRGB(18, 18, 24),
     Primary = Color3.fromRGB(22, 22, 28),
-    PrimaryGradient = Color3.fromRGB(28, 28, 36),
     Secondary = Color3.fromRGB(32, 32, 42),
-    SecondaryGradient = Color3.fromRGB(42, 42, 54),
     Accent = Color3.fromRGB(88, 101, 242),
     AccentGradient = Color3.fromRGB(108, 121, 255),
     AccentHover = Color3.fromRGB(118, 131, 255),
@@ -261,28 +228,27 @@ BloxHub.Settings.Theme = {
     Success = Color3.fromRGB(87, 242, 135),
     Warning = Color3.fromRGB(254, 231, 92),
     Error = Color3.fromRGB(237, 66, 69),
-    Border = Color3.fromRGB(48, 48, 58),
-    Shadow = Color3.fromRGB(0, 0, 0)
+    Border = Color3.fromRGB(48, 48, 58)
 }
 ```
 
-`Accent`, `Success`, `Warning`, `Error` juga dipakai sebagai status bawah notification bar.
+Accent, Success, Warning, and Error also color the accent bar on the left of a notification.
 
-## 🔧 UI Settings
+## UI flags
 
-Toggle fitur UI modern:
+`BloxHub.Settings.UI` toggles pieces of the render:
 
 ```lua
 BloxHub.Settings.UI = {
-    StrokeEnabled = true,      -- UIStroke borders
-    GradientEnabled = true,    -- Gradient backgrounds
-    ShadowEnabled = true,      -- Drop shadows
-    ResponsiveScale = true     -- Responsive scaling
+    StrokeEnabled = true,
+    GradientEnabled = true,
+    ShadowEnabled = true,
+    ResponsiveScale = true
 }
 ```
 
-## 🔁 Lifecycle & Cleanup
+## Lifecycle scoping
 
-- **Per window**: `window:Destroy()` menghapus window, shadow, floating icon, dan memutus semua koneksi global-nya.
-- **Per elemen**: `element:Destroy()` menghapus row dan membebaskan koneksi drag/resize miliknya (mencegah memory/connection leak).
-- **Global**: `BloxHub:Destroy()` memutus seluruh `InputBegan`/`InputChanged`/`InputEnded` milik framework dan menghapus `ScreenGui`.
+Three levels of cleanup exist. `window:Destroy()` removes one window and all its connections. An element's `Destroy()` removes a single row and the input hooks it registered. `BloxHub:Destroy()` clears everything at once, connections included.
+
+For a worked example that presses every component, read `example.lua` in this repo.
