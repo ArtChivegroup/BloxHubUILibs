@@ -26,7 +26,7 @@ Universal Roblox GUI Framework — single-file, component-based UI library built
 ## Getting Started
 
 ```lua
-local BloxHub = loadstring(game:HttpGet("https://raw.githubusercontent.com/ArtChivegroup/BloxHubUILibs/main/source.lua"))()
+local BloxHub = loadstring(game:HttpGet("https://raw.githubusercontent.com/ArtChivegroup/BloxHubUILibs/refs/heads/main/source.lua"))()
 
 local MainWindow = BloxHub:CreateWindow("My UI", {
     Size = UDim2.new(0, 550, 0, 450),

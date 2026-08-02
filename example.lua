@@ -22,7 +22,7 @@
 ]]
 
 -- URL ke file source BloxHub GUI Framework
-local GITHUB_URL = "https://raw.githubusercontent.com/ArtChivegroup/Roblox/refs/heads/main/script/addon/BloxHubUILib/source.lua"
+local GITHUB_URL = "https://raw.githubusercontent.com/ArtChivegroup/BloxHubUILibs/refs/heads/main/source.lua"
 
 -- Muat library dari GitHub
 local BloxHub = loadstring(game:HttpGet(GITHUB_URL))()
