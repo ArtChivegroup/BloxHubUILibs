@@ -1,0 +1,14 @@
+# Roblox Lua scripts — ignore common artifact files.
+*.rbxl
+*.rbxlx
+*.rbxm
+*.rbxmx
+
+# Executor / plugin config
+*.json.bak
+*.log
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
