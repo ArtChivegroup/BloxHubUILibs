@@ -750,19 +750,55 @@ function BloxHub:CreateWindow(title, config)
     if window.Resizable then
         local handle = Instance.new("TextButton")
         handle.Name = "ResizeHandle"
-        handle.Size = UDim2.new(0, 22, 0, 22)
-        handle.Position = UDim2.new(1, -12, 1, -12)
+        handle.Size = UDim2.new(0, 26, 0, 26)
+        handle.Position = UDim2.new(1, -13, 1, -13)
         handle.BackgroundColor3 = self.Settings.Theme.Accent
-        handle.BackgroundTransparency = 0.9
-        handle.Text = "⋯"
-        handle.TextColor3 = self.Settings.Theme.TextDim
-        handle.TextSize = 12
-        handle.Font = self.Settings.FontBold
+        handle.BackgroundTransparency = 0.85
+        handle.Text = ""
         handle.AutoButtonColor = false
         handle.Active = true
         handle.Parent = mainFrame
 
         CreateUICorner(self.Settings.CornerRadius.Small, handle)
+        CreateUIStroke(handle, self.Settings.Theme.Border, 1, 0.6)
+
+        -- Diagonal grip (three dots rising to the corner) signals "resizable"
+        local gripPositions = { {6, 6}, {11, 11}, {16, 16} }
+        for _, p in ipairs(gripPositions) do
+            local dot = Instance.new("Frame")
+            dot.Size = UDim2.new(0, 3, 0, 3)
+            dot.Position = UDim2.new(0, p[1], 0, p[2])
+            dot.BackgroundColor3 = self.Settings.Theme.TextDim
+            dot.BorderSizePixel = 0
+            dot.ZIndex = handle.ZIndex + 1
+            dot.Parent = handle
+            CreateUICorner(2, dot)
+        end
+
+        -- Hover hint so desktop users know the corner is a resize grip
+        local hint = Instance.new("TextLabel")
+        hint.Name = "ResizeHint"
+        hint.BackgroundColor3 = self.Settings.Theme.Secondary
+        hint.BackgroundTransparency = 0.15
+        hint.Text = "Drag to resize"
+        hint.Font = self.Settings.Font
+        hint.TextSize = 12
+        hint.TextColor3 = self.Settings.Theme.Text
+        hint.AnchorPoint = Vector2.new(1, 0)
+        hint.Position = UDim2.new(1, -30, 1, 4)
+        hint.ZIndex = handle.ZIndex + 2
+        hint.Visible = false
+        hint.Parent = handle
+        CreateUICorner(6, hint)
+
+        handle.MouseEnter:Connect(function()
+            Tween(handle, {BackgroundTransparency = 0.45}, 0.15)
+            if not BloxHub.Device.IsMobile then hint.Visible = true end
+        end)
+        handle.MouseLeave:Connect(function()
+            Tween(handle, {BackgroundTransparency = 0.85}, 0.15)
+            hint.Visible = false
+        end)
 
         local resizing = false
         local startSize, startMouse
