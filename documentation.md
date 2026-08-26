@@ -184,6 +184,157 @@ BloxHub:CreateFloatingIcon(MainWindow, {
 })
 ```
 
+### Tab strip scroll steppers (custom)
+
+BloxHub's tab bar is a horizontal `ScrollingFrame` — once you add more tabs than fit (about 5 on desktop), the rest are hidden with no hint that they exist. This drop-in helper adds transparent `<` / `>` glow arrows at the left/right edge of the tab strip so users know more tabs are available:
+
+- The `>` arrow shows while tabs exist off-screen to the right; `<` appears once you scroll away from the start.
+- Both are transparent (no solid chip) — just an accent-colored glyph with a soft, breathing `UIStroke` glow so they never cover the tabs.
+- Clicking `>` / `<` steps to the **next / previous tab** (it locates the active tab via its `Indicator` and scrolls it into view), one tab at a time.
+- Overflow is measured from the actual `Tab_*` buttons (`TextButton` children of `TabContainer`), not `CanvasSize` — deterministic and not affected by `AutomaticCanvasSize` lag.
+
+```lua
+-- Run AFTER every tab has been created (e.g. after all your Window:CreateTab calls).
+local function AddTabScrollHint()
+    local win = MainWindow
+    local tc = win.TabContainer
+    if not tc then return end
+
+    local T = BloxHub.Settings.Theme
+    local BAR_Y = 58      -- BloxHub tab bar starts at Y=58 (matches TabContainer)
+    local BAR_H = 40
+
+    local function MakeEdge(chevron, anchorRight)
+        local btn = Instance.new("TextButton")
+        btn.Name = "TabScroll" .. (anchorRight and "Next" or "Prev")
+        btn.Size = UDim2.new(0, 34, 0, 34)
+        btn.Position = UDim2.new(
+            anchorRight and 1 or 0, anchorRight and -38 or 0,
+            0, BAR_Y + (BAR_H - 34) / 2
+        )
+        btn.BackgroundTransparency = 1       -- transparent, glow only
+        btn.Text = chevron
+        btn.TextColor3 = T.AccentGradient
+        btn.TextSize = 22
+        btn.Font = BloxHub.Settings.FontBold
+        btn.TextWrapped = true
+        btn.AutoButtonColor = false
+        btn.ZIndex = 150
+        btn.Parent = win.Frame
+
+        local glow = Instance.new("UIStroke")
+        glow.Color = T.Accent
+        glow.Thickness = 1.5
+        glow.Transparency = 0.35
+        glow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        glow.Parent = btn
+
+        btn.MouseEnter:Connect(function()
+            pcall(function()
+                btn.TextColor3 = T.Text
+                glow.Transparency = 0
+                glow.Thickness = 2.5
+            end)
+        end)
+        btn.MouseLeave:Connect(function()
+            pcall(function()
+                btn.TextColor3 = T.AccentGradient
+                glow.Transparency = 0.35
+                glow.Thickness = 1.5
+            end)
+        end)
+
+        -- Click = step one tab (next / prev), not one page.
+        btn.MouseButton1Click:Connect(function()
+            local tabs = {}
+            for _, child in ipairs(tc:GetChildren()) do
+                if child:IsA("TextButton") and child.Name:sub(1, 4) == "Tab_" then
+                    tabs[#tabs + 1] = child
+                end
+            end
+            if #tabs < 2 then return end
+
+            local activeIdx = 1
+            for i, tb in ipairs(tabs) do
+                local ind = tb:FindFirstChild("Indicator")
+                if ind and ind.Visible then activeIdx = i break end
+            end
+            local target = math.clamp(activeIdx + (anchorRight and 1 or -1), 1, #tabs)
+            local goal = tabs[target].AbsolutePosition.X
+            local viewLeft = tc.AbsolutePosition.X
+            tc.CanvasPosition = Vector2.new(
+                math.max(0, goal - viewLeft),
+                tc.CanvasPosition.Y
+            )
+        end)
+
+        -- Soft breathing glow so hidden tabs stay discoverable.
+        local pulsing = false
+        local function Pulse()
+            if pulsing or not btn.Parent then return end
+            pulsing = true
+            while not _G.BloxHubDead do
+                if not btn.Parent or not btn.Visible then break end
+                pcall(function()
+                    game:GetService("TweenService"):Create(glow,
+                        TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
+                        { Transparency = 0.55 }):Play()
+                    task.wait(0.4)
+                    game:GetService("TweenService"):Create(glow,
+                        TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
+                        { Transparency = 0.2 }):Play()
+                    task.wait(0.8)
+                end)
+            end
+            pulsing = false
+        end
+        task.spawn(Pulse)
+
+        return btn
+    end
+
+    local left = MakeEdge("<", false)
+    local right = MakeEdge(">", true)
+
+    local function Refresh()
+        if not tc or not right.Parent or not left.Parent then return end
+        local count = 0
+        local totalW = 0
+        for _, child in ipairs(tc:GetChildren()) do
+            if child:IsA("TextButton") and child.Name:sub(1, 4) == "Tab_" then
+                count = count + 1
+                totalW = totalW + child.AbsoluteSize.X
+            end
+        end
+        local vsX = tc.AbsoluteWindowSize.X
+        if vsX <= 0 then vsX = tc.AbsoluteSize.X end
+        local maxX = math.max(0, totalW - vsX)
+        local cp = tc.CanvasPosition.X
+        local hasMore = count > 0 and maxX > 8
+        right.Visible = hasMore and cp < maxX - 4
+        left.Visible = hasMore and cp > 4
+    end
+
+    tc:GetPropertyChangedSignal("CanvasPosition"):Connect(Refresh)
+    tc:GetPropertyChangedSignal("CanvasSize"):Connect(Refresh)
+    task.spawn(function()
+        while not _G.BloxHubDead and right.Parent do
+            Refresh()
+            task.wait(0.4)
+        end
+    end)
+    task.wait(0.2)
+    Refresh()
+end
+AddTabScrollHint()
+```
+
+Notes:
+- `_G.BloxHubDead` is a script-owned flag (set true on unload) so the pulse loop stops; replace it with your own `HUB.dead`/unload guard if you prefer.
+- `BAR_Y = 58` matches BloxHub's built-in tab bar offset. If you resize the window header in a fork, adjust this.
+- The arrows are children of `win.Frame` with `ZIndex = 150`, so they float above the tabs without being clipped.
+- Works on touch too: the `TextButton` handles tap = click, and the strip itself still scrolls by drag.
+
 ### Themes
 
 `BloxHub:GetThemes()` returns the built-in names. `SetTheme(name)` applies one and repaints everything that's already on screen. `CustomizeTheme({ key = color })` alters specific keys the same way.
