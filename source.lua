@@ -14,7 +14,7 @@
 -- Nothing public removed or renamed; downstream scripts keep working.
 
 local BloxHub = {
-    Version = "3.2.0",
+    Version = "3.3.0",
 
     Core = {
         Initialized = false,
@@ -90,7 +90,11 @@ local BloxHub = {
         DraggingElement = nil,
         SavedConfigs = {},
         Notifications = {},
-        ThemeCallbacks = {}
+        ThemeCallbacks = {},
+        -- Additive (v3.3.0): dropdown z-order management
+        DropdownOpenCount = 0,
+        OrigDisplayOrder = nil,
+        TopMost = false
     },
 
     Input = {
@@ -180,6 +184,74 @@ end
 local function RegisterThemeCallback(cb)
     table.insert(BloxHub.State.ThemeCallbacks, cb)
     return cb
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- CLEAN-THREAD DISPATCHER (additive, v3.3.0)
+-- ═══════════════════════════════════════════════════════════
+-- Dibuat SATU KALI saat loadstring dieksekusi — sebelum script pemakai sempat
+-- memanggil require modul game. Thread coroutine mewarisi capability saat
+-- DIBUAT, bukan saat di-resume, jadi Instance.new di dalamnya tetap bersih
+-- meskipun thread pemanggil sudah kehilangan capability ("lacking capability
+-- Plugin" saat require dijalankan di tengah pembangunan UI).
+-- Pola resume/yield ini SINKRON: tidak ada perubahan timing, urutan baris,
+-- maupun return value dibanding eksekusi langsung. Bila dispatcher pernah
+-- mati (seharusnya tidak terjadi), RunClean jatuh ke jalur lama: eksekusi
+-- langsung di thread pemanggil = persis perilaku sebelum v3.3.0.
+local __cleanThread = coroutine.create(function(fn, ...)
+    local args = table.pack(fn, ...)
+    while true do
+        if type(args[1]) ~= "function" then
+            args = table.pack(function()
+                error("RunClean: job bukan fungsi", 0)
+            end)
+        end
+        local results = table.pack(pcall(table.unpack(args, 1, args.n)))
+        args = table.pack(coroutine.yield(table.unpack(results, 1, results.n)))
+    end
+end)
+
+local function RunClean(fn, ...)
+    local results = table.pack(coroutine.resume(__cleanThread, fn, ...))
+    if not results[1] then
+        -- dispatcher mati → jalur lama (perilaku legacy)
+        return fn(...)
+    end
+    if not results[2] then
+        -- fn error di dalam: re-raise PESAN ASLI tanpa menambah prefix posisi
+        -- baru (level 0) supaya pesan yang ditangkap pcall pemanggil identik
+        -- dengan perilaku legacy saat error langsung dari thread pemanggil.
+        error(results[3], 0)
+    end
+    return table.unpack(results, 3, results.n)
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- DROPDOWN OPTIONS Z-ORDER (additive, v3.3.0)
+-- ═══════════════════════════════════════════════════════════
+-- Daftar opsi dropdown hidup di ScreenGui root milik framework. Selama ada
+-- dropdown yang terbuka, DisplayOrder dinaikkan supaya daftar pasti berada
+-- di atas ScreenGui lain milik script pemakai (overlay/pill buatan sendiri),
+-- lalu dikembalikan saat dropdown terakhir ditutup — layering permanen tidak
+-- berubah. Override eksplisit: BloxHub:SetTopMost(true).
+local function RaiseOptionsLayer()
+    local sg = BloxHub.Core.ScreenGui
+    if not sg or BloxHub.State.TopMost then return end
+    BloxHub.State.DropdownOpenCount = (BloxHub.State.DropdownOpenCount or 0) + 1
+    if BloxHub.State.OrigDisplayOrder == nil then
+        BloxHub.State.OrigDisplayOrder = sg.DisplayOrder
+    end
+    sg.DisplayOrder = math.max(sg.DisplayOrder, 10000)
+end
+
+local function RestoreOptionsLayer()
+    local sg = BloxHub.Core.ScreenGui
+    if not sg or BloxHub.State.TopMost then return end
+    BloxHub.State.DropdownOpenCount = math.max((BloxHub.State.DropdownOpenCount or 1) - 1, 0)
+    if (BloxHub.State.DropdownOpenCount or 0) == 0 and BloxHub.State.OrigDisplayOrder ~= nil then
+        sg.DisplayOrder = BloxHub.State.OrigDisplayOrder
+        BloxHub.State.OrigDisplayOrder = nil
+    end
 end
 
 local function SafeSet(inst, prop, value)
@@ -424,6 +496,28 @@ function BloxHub:OnScreenChange(callback)
     }
 end
 
+-- Pin framework ScreenGui di atas SEMUA ScreenGui milik script pemakai
+-- (overlay, pill, dsb). Additive (v3.3.0). Panggil SetTopMost(false) untuk
+-- mengembalikan DisplayOrder default (999). Tanpa ini, dropdown tetap
+-- otomatis terangkat selama daftar terbuka (lihat RaiseOptionsLayer).
+function BloxHub:SetTopMost(enabled)
+    local sg = self.Core.ScreenGui
+    if not sg then return end
+    if enabled then
+        if self.State.OrigDisplayOrder == nil then
+            self.State.OrigDisplayOrder = sg.DisplayOrder
+        end
+        self.State.TopMost = true
+        sg.DisplayOrder = math.max(sg.DisplayOrder, 10000)
+    else
+        self.State.TopMost = false
+        if (self.State.DropdownOpenCount or 0) == 0 and self.State.OrigDisplayOrder ~= nil then
+            sg.DisplayOrder = self.State.OrigDisplayOrder
+            self.State.OrigDisplayOrder = nil
+        end
+    end
+end
+
 local function GetMousePosition()
     return UserInputService:GetMouseLocation()
 end
@@ -571,7 +665,11 @@ end
 -- WINDOW API
 -- ═══════════════════════════════════════════════════════════
 
-function BloxHub:CreateWindow(title, config)
+-- Implementasi CreateWindow dijalankan lewat RunClean (thread bersih) agar
+-- pembuatan Instance tetap aman bila thread pemanggil kehilangan capability
+-- (lihat catatan CLEAN-THREAD DISPATCHER di atas). Signature & perilaku tidak
+-- berubah dari versi sebelumnya.
+local function CreateWindowImpl(self, title, config)
     config = config or {}
 
     local baseWidth = config.Size and config.Size.X.Offset or 550
@@ -587,9 +685,11 @@ function BloxHub:CreateWindow(title, config)
         Resizable = config.Resizable or false,
         MinSize = config.MinSize or UDim2.new(0, 320, 0, 200),
         Visible = config.Visible ~= false,
+        Minimized = false,
         Tabs = {},
         CurrentTab = nil,
         Elements = {},
+        MiniWidgets = {},
         Hotkeys = {},
         Connections = {},
         ID = HttpService:GenerateGUID(false)
@@ -694,7 +794,16 @@ function BloxHub:CreateWindow(title, config)
     minIcon.Parent = minimizeBtn
     CreateUICorner(2, minIcon)
 
-    minimizeBtn.MouseButton1Click:Connect(function() window:Toggle() end)
+    -- Opsi MinimizeButton (additive v3.3.0): tombol header memakai jalur
+    -- Minimize/Restore resmi (ikon melayang sebagai restore). Default tetap
+    -- Toggle seperti sebelumnya — script lama tidak berubah perilaku.
+    minimizeBtn.MouseButton1Click:Connect(function()
+        if config.MinimizeButton then
+            window:Minimize()
+        else
+            window:Toggle()
+        end
+    end)
 
     minimizeBtn.MouseEnter:Connect(function()
         Tween(minimizeBtn, {BackgroundColor3 = self.Settings.Theme.Accent, BackgroundTransparency = 0}, 0.2)
@@ -873,6 +982,9 @@ function BloxHub:CreateWindow(title, config)
 
     function window:Toggle()
         self.Visible = not self.Visible
+        -- Window yang kembali tampil otomatis dianggap tidak minimized;
+        -- hanya menulis field baru (v3.3.0), script lama tidak membacanya.
+        if self.Visible then self.Minimized = false end
         self.Frame.Visible = self.Visible
         if self.Shadow then self.Shadow.Visible = self.Visible end
         if self.FloatingIcon then self.FloatingIcon.Visible = not self.Visible end
@@ -880,6 +992,7 @@ function BloxHub:CreateWindow(title, config)
 
     function window:Show()
         self.Visible = true
+        self.Minimized = false
         self.Frame.Visible = true
         if self.Shadow then self.Shadow.Visible = true end
         if self.FloatingIcon then self.FloatingIcon.Visible = false end
@@ -890,6 +1003,30 @@ function BloxHub:CreateWindow(title, config)
         self.Frame.Visible = false
         if self.Shadow then self.Shadow.Visible = false end
         if self.FloatingIcon then self.FloatingIcon.Visible = true end
+    end
+
+    -- Minimize/restore bawaan (additive v3.3.0). Minimize menyembunyikan
+    -- window dan memunculkan ikon melayang (BloxHub:CreateFloatingIcon)
+    -- sebagai jalur restore resmi; Restore mengembalikannya. Script tidak
+    -- perlu lagi membuat pill minimize sendiri.
+    function window:Minimize()
+        -- Selalu terapkan state (idempoten) agar aman walau dipanggil
+        -- setelah Toggle/Hide dari hotkey script.
+        self.Minimized = true
+        if not self.FloatingIcon then
+            BloxHub:CreateFloatingIcon(self, { ShowOnMinimize = true })
+        end
+        self:Hide()
+    end
+
+    function window:Restore()
+        if not self.Minimized then return end
+        self.Minimized = false
+        self:Show()
+    end
+
+    function window:IsMinimized()
+        return self.Minimized
     end
 
     function window:SetTitle(newTitle)
@@ -912,6 +1049,11 @@ function BloxHub:CreateWindow(title, config)
         for _, conn in ipairs(self.Connections) do
             pcall(function() conn:Disconnect() end)
         end
+        if self.MiniWidgets then
+            for _, mw in ipairs(self.MiniWidgets) do
+                pcall(function() mw:Destroy() end)
+            end
+        end
         if self.Frame then pcall(function() self.Frame:Destroy() end) end
         if self.Shadow then pcall(function() self.Shadow:Destroy() end) end
         if self.FloatingIcon then pcall(function() self.FloatingIcon:Destroy() end) end
@@ -919,11 +1061,19 @@ function BloxHub:CreateWindow(title, config)
     end
 
     function window:CreateTab(tabName)
-        return BloxHub.Elements:CreateTab(self, tabName)
+        return RunClean(BloxHub.Elements.CreateTab, BloxHub.Elements, self, tabName)
     end
 
     function window:CreatePopup(title, options)
-        return BloxHub.Elements:CreatePopup(self, title, options)
+        return RunClean(BloxHub.Elements.CreatePopup, BloxHub.Elements, self, title, options)
+    end
+
+    -- Widget mini / compact mode (additive v3.3.0): kontrol cepat tanpa
+    -- membuka window penuh. Lihat BloxHub:CreateMiniWidget untuk format Rows.
+    function window:CreateMiniWidget(config)
+        local widget = RunClean(BloxHub.CreateMiniWidget, self, self, config)
+        table.insert(self.MiniWidgets, widget)
+        return widget
     end
 
     function window:RegisterHotkey(name, keyCode, callback)
@@ -967,6 +1117,10 @@ function BloxHub:CreateWindow(title, config)
     self.State.Windows[window.ID] = window
 
     return window
+end
+
+function BloxHub:CreateWindow(title, config)
+    return RunClean(CreateWindowImpl, self, title, config)
 end
 
 -- ═══════════════════════════════════════════════════════════
@@ -1065,14 +1219,16 @@ function BloxHub.Elements:CreateTab(window, tabName)
         }, 0.15)
     end
 
-    function tab:AddButton(text, callback) return BloxHub.Elements:CreateButton(self, text, callback) end
-    function tab:AddToggle(text, default, callback) return BloxHub.Elements:CreateToggle(self, text, default, callback) end
-    function tab:AddSlider(text, min, max, default, callback) return BloxHub.Elements:CreateSlider(self, text, min, max, default, callback) end
-    function tab:AddKeybind(text, defaultKey, callback) return BloxHub.Elements:CreateKeybind(self, text, defaultKey, callback) end
-    function tab:AddDropdown(text, options, callback) return BloxHub.Elements:CreateDropdown(self, text, options, callback) end
-    function tab:AddTextBox(text, placeholder, callback) return BloxHub.Elements:CreateTextBox(self, text, placeholder, callback) end
-    function tab:AddLabel(text, config) return BloxHub.Elements:CreateLabel(self, text, config) end
-    function tab:AddDivider() return BloxHub.Elements:CreateDivider(self) end
+    -- Semua Add* dijalankan lewat RunClean (thread bersih) — lihat catatan
+    -- CLEAN-THREAD DISPATCHER. Signature & return value tidak berubah.
+    function tab:AddButton(text, callback) return RunClean(BloxHub.Elements.CreateButton, BloxHub.Elements, self, text, callback) end
+    function tab:AddToggle(text, default, callback) return RunClean(BloxHub.Elements.CreateToggle, BloxHub.Elements, self, text, default, callback) end
+    function tab:AddSlider(text, min, max, default, callback) return RunClean(BloxHub.Elements.CreateSlider, BloxHub.Elements, self, text, min, max, default, callback) end
+    function tab:AddKeybind(text, defaultKey, callback) return RunClean(BloxHub.Elements.CreateKeybind, BloxHub.Elements, self, text, defaultKey, callback) end
+    function tab:AddDropdown(text, options, callback) return RunClean(BloxHub.Elements.CreateDropdown, BloxHub.Elements, self, text, options, callback) end
+    function tab:AddTextBox(text, placeholder, callback) return RunClean(BloxHub.Elements.CreateTextBox, BloxHub.Elements, self, text, placeholder, callback) end
+    function tab:AddLabel(text, config) return RunClean(BloxHub.Elements.CreateLabel, BloxHub.Elements, self, text, config) end
+    function tab:AddDivider() return RunClean(BloxHub.Elements.CreateDivider, BloxHub.Elements, self) end
 
     table.insert(window.Tabs, tab)
 
@@ -1591,6 +1747,7 @@ function BloxHub.Elements:CreateDropdown(tab, text, options, callback)
                 dropdownBtn.Text = option .. "  ⌄"
                 expanded = false
                 optionsContainer.Visible = false
+                RestoreOptionsLayer()
 
                 for _, el in pairs(optionObjects) do
                     local indicatorFil = el:FindFirstChild("SelectedIndicator")
@@ -1621,15 +1778,31 @@ function BloxHub.Elements:CreateDropdown(tab, text, options, callback)
         if expanded then
             local btnPos = dropdownBtn.AbsolutePosition
             local btnSize = dropdownBtn.AbsoluteSize
+            local vp = GetViewportSize()
 
-            optionsContainer.Size = UDim2.fromOffset(btnSize.X, optionsContainer.AbsoluteSize.Y)
-            optionsContainer.Position = UDim2.fromOffset(btnPos.X, btnPos.Y + btnSize.Y + 5)
+            -- Tinggi daftar dibatasi tinggi viewport (ClipsDescendants aktif)
+            local listH = optionsContainer.AbsoluteSize.Y
+            local maxH = math.max(vp.Y - 16, 40)
+            if listH > maxH then listH = maxH end
+            optionsContainer.Size = UDim2.fromOffset(btnSize.X, listH)
+
+            -- Default buka ke bawah; bila tidak muat, buka ke atas. Posisi
+            -- selalu di-clamp agar daftar tidak keluar viewport.
+            local x = math.clamp(btnPos.X, 8, math.max(8, vp.X - btnSize.X - 8))
+            local y = btnPos.Y + btnSize.Y + 5
+            if y + listH > vp.Y - 8 then
+                y = btnPos.Y - 5 - listH
+                if y < 8 then y = math.max(8, vp.Y - 8 - listH) end
+            end
+            optionsContainer.Position = UDim2.fromOffset(x, y)
 
             dropdownBtn.Text = selectedOption .. "  ʌ"
             optionsContainer.Visible = true
+            RaiseOptionsLayer()
         else
             dropdownBtn.Text = selectedOption .. "  ▼"
             optionsContainer.Visible = false
+            RestoreOptionsLayer()
         end
     end)
 
@@ -1637,9 +1810,12 @@ function BloxHub.Elements:CreateDropdown(tab, text, options, callback)
     dropdownBtn.MouseLeave:Connect(function() Tween(dropdownBtn, {BackgroundColor3 = BloxHub.Settings.Theme.Secondary}, 0.2) end)
 
     local function closeDropdown()
-        expanded = false
-        optionsContainer.Visible = false
-        dropdownBtn.Text = selectedOption .. "  ▼"
+        if expanded then
+            expanded = false
+            optionsContainer.Visible = false
+            dropdownBtn.Text = selectedOption .. "  ▼"
+            RestoreOptionsLayer()
+        end
     end
 
     tab.Window.Frame.Changed:Connect(function(prop)
@@ -1677,11 +1853,26 @@ function BloxHub.Elements:CreateDropdown(tab, text, options, callback)
                 end
             end
         end,
-        Refresh = function(newOptions)
+        -- Menerima dua gaya panggilan: row.Refresh(list) DAN row:Refresh(list).
+        -- Gaya titik dua mengirim row itu sendiri sebagai argumen pertama; row
+        -- selalu punya kunci .Container sedangkan daftar opsi selalu array
+        -- string, jadi keduanya tidak mungkin tertukar. Perilaku gaya titik
+        -- (dipakai script lama) tidak berubah sama sekali.
+        Refresh = function(a, b)
+            local newOptions = a
+            if type(a) == "table" and a.Container ~= nil then
+                newOptions = b
+            end
             options = newOptions or options
-            createOptions()
+            -- createOptions membuat Instance: jalankan di thread bersih agar
+            -- aman dipanggil dari thread yang kehilangan capability (require).
+            RunClean(createOptions)
         end,
         Destroy = function()
+            if expanded then
+                expanded = false
+                RestoreOptionsLayer()
+            end
             pcall(function() optionsContainer:Destroy() end)
             if container then pcall(function() container:Destroy() end) end
         end
@@ -1912,41 +2103,45 @@ function BloxHub.Elements:CreatePopup(window, title, options)
     end
 
     function popup:AddButton(text, callback)
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, 0, 0, 35)
-        btn.BackgroundColor3 = BloxHub.Settings.Theme.Primary
-        btn.Text = text
-        btn.TextColor3 = BloxHub.Settings.Theme.Text
-        btn.TextSize = 14
-        btn.Font = BloxHub.Settings.FontSemibold
-        btn.AutoButtonColor = false
-        btn.ZIndex = 102
-        btn.Parent = self.Content
-        CreateUICorner(BloxHub.Settings.CornerRadius.Small, btn)
+        return RunClean(function()
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1, 0, 0, 35)
+            btn.BackgroundColor3 = BloxHub.Settings.Theme.Primary
+            btn.Text = text
+            btn.TextColor3 = BloxHub.Settings.Theme.Text
+            btn.TextSize = 14
+            btn.Font = BloxHub.Settings.FontSemibold
+            btn.AutoButtonColor = false
+            btn.ZIndex = 102
+            btn.Parent = self.Content
+            CreateUICorner(BloxHub.Settings.CornerRadius.Small, btn)
 
-        btn.MouseButton1Click:Connect(function()
-            if callback then pcall(callback) end
+            btn.MouseButton1Click:Connect(function()
+                if callback then pcall(callback) end
+            end)
+
+            btn.MouseEnter:Connect(function() Tween(btn, {BackgroundColor3 = BloxHub.Settings.Theme.Accent}, 0.2) end)
+            btn.MouseLeave:Connect(function() Tween(btn, {BackgroundColor3 = BloxHub.Settings.Theme.Primary}, 0.2) end)
+
+            return btn
         end)
-
-        btn.MouseEnter:Connect(function() Tween(btn, {BackgroundColor3 = BloxHub.Settings.Theme.Accent}, 0.2) end)
-        btn.MouseLeave:Connect(function() Tween(btn, {BackgroundColor3 = BloxHub.Settings.Theme.Primary}, 0.2) end)
-
-        return btn
     end
 
     function popup:AddLabel(text)
-        local lbl = Instance.new("TextLabel")
-        lbl.Size = UDim2.new(1, 0, 0, 25)
-        lbl.BackgroundTransparency = 1
-        lbl.Text = text
-        lbl.TextColor3 = BloxHub.Settings.Theme.Text
-        lbl.TextSize = 13
-        lbl.Font = BloxHub.Settings.Font
-        lbl.TextXAlignment = Enum.TextXAlignment.Left
-        lbl.TextWrapped = true
-        lbl.ZIndex = 102
-        lbl.Parent = contentFrame
-        return lbl
+        return RunClean(function()
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(1, 0, 0, 25)
+            lbl.BackgroundTransparency = 1
+            lbl.Text = text
+            lbl.TextColor3 = BloxHub.Settings.Theme.Text
+            lbl.TextSize = 13
+            lbl.Font = BloxHub.Settings.Font
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.TextWrapped = true
+            lbl.ZIndex = 102
+            lbl.Parent = contentFrame
+            return lbl
+        end)
     end
 
     function popup:Destroy()
@@ -1961,32 +2156,38 @@ end
 -- ═══════════════════════════════════════════════════════════
 
 function BloxHub:CreateGrid(parent, columns, cellSize, padding)
-    local gridLayout = Instance.new("UIGridLayout")
-    gridLayout.CellSize = cellSize or UDim2.new(0, 140, 0, 100)
-    gridLayout.CellPadding = padding or UDim2.new(0, 10, 0, 10)
-    gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    gridLayout.StartCorner = Enum.StartCorner.TopLeft
-    gridLayout.FillDirection = Enum.FillDirection.Horizontal
-    gridLayout.Parent = parent
-    return gridLayout
+    return RunClean(function()
+        local gridLayout = Instance.new("UIGridLayout")
+        gridLayout.CellSize = cellSize or UDim2.new(0, 140, 0, 100)
+        gridLayout.CellPadding = padding or UDim2.new(0, 10, 0, 10)
+        gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        gridLayout.StartCorner = Enum.StartCorner.TopLeft
+        gridLayout.FillDirection = Enum.FillDirection.Horizontal
+        gridLayout.Parent = parent
+        return gridLayout
+    end)
 end
 
 function BloxHub:CreateVerticalStack(parent, padding)
-    local listLayout = Instance.new("UIListLayout")
-    listLayout.Padding = UDim.new(0, padding or 8)
-    listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    listLayout.FillDirection = Enum.FillDirection.Vertical
-    listLayout.Parent = parent
-    return listLayout
+    return RunClean(function()
+        local listLayout = Instance.new("UIListLayout")
+        listLayout.Padding = UDim.new(0, padding or 8)
+        listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        listLayout.FillDirection = Enum.FillDirection.Vertical
+        listLayout.Parent = parent
+        return listLayout
+    end)
 end
 
 function BloxHub:CreateHorizontalStack(parent, padding)
-    local listLayout = Instance.new("UIListLayout")
-    listLayout.FillDirection = Enum.FillDirection.Horizontal
-    listLayout.Padding = UDim.new(0, padding or 8)
-    listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    listLayout.Parent = parent
-    return listLayout
+    return RunClean(function()
+        local listLayout = Instance.new("UIListLayout")
+        listLayout.FillDirection = Enum.FillDirection.Horizontal
+        listLayout.Padding = UDim.new(0, padding or 8)
+        listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        listLayout.Parent = parent
+        return listLayout
+    end)
 end
 
 -- ═══════════════════════════════════════════════════════════
@@ -2175,7 +2376,8 @@ end
 -- FLOATING ICON TOGGLE
 -- ═══════════════════════════════════════════════════════════
 
-function BloxHub:CreateFloatingIcon(window, config)
+-- Dijalankan lewat RunClean (thread bersih) — lihat CLEAN-THREAD DISPATCHER.
+local function CreateFloatingIconImpl(self, window, config)
     config = config or {}
 
     local icon = Instance.new("TextButton")
@@ -2194,7 +2396,15 @@ function BloxHub:CreateFloatingIcon(window, config)
     CreateUICorner(self.Settings.CornerRadius.Medium, icon)
     CreateUIStroke(icon, self.Settings.Theme.Border, 1, 0.5)
 
-    icon.MouseButton1Click:Connect(function() window:Toggle() end)
+    icon.MouseButton1Click:Connect(function()
+        -- Jalur restore resmi untuk window:Minimize() (additive v3.3.0);
+        -- window lama tanpa state Minimized tetap memakai Toggle seperti biasa.
+        if window.Minimized then
+            window:Restore()
+        else
+            window:Toggle()
+        end
+    end)
 
     icon.MouseEnter:Connect(function()
         Tween(icon, {BackgroundColor3 = self.Settings.Theme.AccentHover}, 0.2)
@@ -2223,6 +2433,245 @@ function BloxHub:CreateFloatingIcon(window, config)
     return icon
 end
 
+function BloxHub:CreateFloatingIcon(window, config)
+    return RunClean(CreateFloatingIconImpl, self, window, config)
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- MINI WIDGET (compact overlay control) — additive, v3.3.0
+-- ═══════════════════════════════════════════════════════════
+--[[
+    window:CreateMiniWidget({
+        Title    = "FARM",                       -- opsional
+        Position = UDim2.new(0, 12, 0, 200),     -- opsional (default kanan-bawah)
+        Rows = {
+            { Type = "Toggle", Text = "Farm", Default = false, Callback = function(on) end },
+            { Type = "Label",  Text = "Kills: 0" },
+        },
+    })
+    → {
+        Frame  = frame,
+        Show(), Hide(), Destroy(),
+        SetText(rowIndex, newText),              -- untuk baris Label
+        Rows = { [i] = { Type = "Toggle", GetValue(), SetValue(bool) }
+                       | { Type = "Label",  SetText(s) } },
+    }
+    Draggable; otomatis di-clamp ke viewport dan bisa "dock" ke tepi terdekat.
+]]
+function BloxHub:CreateMiniWidget(window, config)
+    config = config or {}
+    local T = self.Settings.Theme
+
+    local widget = { Rows = {} }
+
+    local frame = Instance.new("Frame")
+    frame.Name = "MiniWidget_" .. (config.Title or window.ID)
+    frame.BackgroundColor3 = T.Background
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.ZIndex = 220
+    frame.Position = config.Position or UDim2.new(1, -160, 1, -60)
+    frame.Parent = self.Core.ScreenGui
+    CreateUICorner(self.Settings.CornerRadius.Medium, frame)
+    CreateUIStroke(frame, T.Border, 1, 0.6)
+
+    local layout = Instance.new("UIListLayout")
+    layout.Padding = UDim.new(0, self.Settings.Spacing.XS)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = frame
+    CreateUIPadding(self.Settings.Spacing.SM, self.Settings.Spacing.SM, self.Settings.Spacing.SM, self.Settings.Spacing.SM, frame)
+
+    local rowHeight = self.Device.IsMobile and 32 or 26
+    local layoutOrder = 0
+    local builtRows = 0
+
+    if config.Title then
+        layoutOrder = layoutOrder + 1
+        local titleRow = Instance.new("TextLabel")
+        titleRow.Name = "Title"
+        titleRow.Size = UDim2.new(1, 0, 0, rowHeight)
+        titleRow.BackgroundTransparency = 1
+        titleRow.Text = config.Title
+        titleRow.TextColor3 = T.Text
+        titleRow.TextSize = 13
+        titleRow.Font = self.Settings.FontBold
+        titleRow.TextXAlignment = Enum.TextXAlignment.Left
+        titleRow.ZIndex = 221
+        titleRow.LayoutOrder = layoutOrder
+        titleRow.Parent = frame
+        CreateAccentLine(titleRow, UDim2.new(0, 0, 1, -1))
+    end
+
+    -- widget.Rows diindeks sama dengan config.Rows (Title tidak menggeser)
+    for rowIdx, rowConfig in ipairs(config.Rows or {}) do
+        layoutOrder = layoutOrder + 1
+        builtRows = builtRows + 1
+        rowConfig.Type = rowConfig.Type or "Label"
+
+        if rowConfig.Type == "Toggle" then
+            local state = rowConfig.Default or false
+            local rowBtn = Instance.new("TextButton")
+            rowBtn.Name = "MiniToggle_" .. (rowConfig.Text or rowIdx)
+            rowBtn.Size = UDim2.new(1, 0, 0, rowHeight)
+            rowBtn.BackgroundColor3 = T.Secondary
+            rowBtn.Text = ""
+            rowBtn.AutoButtonColor = false
+            rowBtn.ZIndex = 221
+            rowBtn.LayoutOrder = layoutOrder
+            rowBtn.Parent = frame
+            CreateUICorner(self.Settings.CornerRadius.Small, rowBtn)
+
+            local rowLabel = Instance.new("TextLabel")
+            rowLabel.Size = UDim2.new(1, -46, 1, 0)
+            rowLabel.Position = UDim2.new(0, 10, 0, 0)
+            rowLabel.BackgroundTransparency = 1
+            rowLabel.Text = rowConfig.Text or ""
+            rowLabel.TextColor3 = T.Text
+            rowLabel.TextSize = 12
+            rowLabel.Font = self.Settings.Font
+            rowLabel.TextXAlignment = Enum.TextXAlignment.Left
+            rowLabel.ZIndex = 222
+            rowLabel.Parent = rowBtn
+
+            local stateLabel = Instance.new("TextLabel")
+            stateLabel.Size = UDim2.new(0, 40, 1, 0)
+            stateLabel.Position = UDim2.new(1, -46, 0, 0)
+            stateLabel.BackgroundTransparency = 1
+            stateLabel.Text = state and "ON" or "OFF"
+            stateLabel.TextColor3 = state and T.Success or T.TextDim
+            stateLabel.TextSize = 12
+            stateLabel.Font = self.Settings.FontBold
+            stateLabel.TextXAlignment = Enum.TextXAlignment.Right
+            stateLabel.ZIndex = 222
+            stateLabel.Parent = rowBtn
+
+            rowBtn.MouseButton1Click:Connect(function()
+                state = not state
+                stateLabel.Text = state and "ON" or "OFF"
+                stateLabel.TextColor3 = state and BloxHub.Settings.Theme.Success or BloxHub.Settings.Theme.TextDim
+                if rowConfig.Callback then pcall(rowConfig.Callback, state) end
+            end)
+
+            widget.Rows[rowIdx] = {
+                Type = "Toggle",
+                GetValue = function() return state end,
+                SetValue = function(_, value)
+                    state = value and true or false
+                    stateLabel.Text = state and "ON" or "OFF"
+                    stateLabel.TextColor3 = state and BloxHub.Settings.Theme.Success or BloxHub.Settings.Theme.TextDim
+                end
+            }
+
+            RegisterThemeCallback(function()
+                if not rowBtn.Parent then return end
+                local TH = BloxHub.Settings.Theme
+                SafeSet(rowBtn, "BackgroundColor3", TH.Secondary)
+                SafeSet(rowLabel, "TextColor3", TH.Text)
+                SafeSet(stateLabel, "TextColor3", state and TH.Success or TH.TextDim)
+            end)
+        else
+            local rowLabel = Instance.new("TextLabel")
+            rowLabel.Name = "MiniLabel_" .. (rowConfig.Text or rowIdx)
+            rowLabel.Size = UDim2.new(1, 0, 0, rowHeight)
+            rowLabel.BackgroundColor3 = T.Secondary
+            rowLabel.BackgroundTransparency = 0.4
+            rowLabel.Text = rowConfig.Text or ""
+            rowLabel.TextColor3 = T.Text
+            rowLabel.TextSize = 12
+            rowLabel.Font = self.Settings.Font
+            rowLabel.TextXAlignment = Enum.TextXAlignment.Left
+            rowLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            rowLabel.ZIndex = 221
+            rowLabel.LayoutOrder = layoutOrder
+            rowLabel.Parent = frame
+            CreateUIPadding(10, 10, 0, 0, rowLabel)
+            CreateUICorner(self.Settings.CornerRadius.Small, rowLabel)
+
+            widget.Rows[rowIdx] = {
+                Type = "Label",
+                SetText = function(_, newText)
+                    rowLabel.Text = tostring(newText)
+                end
+            }
+
+            RegisterThemeCallback(function()
+                if not rowLabel.Parent then return end
+                local TH = BloxHub.Settings.Theme
+                SafeSet(rowLabel, "TextColor3", TH.Text)
+                SafeSet(rowLabel, "BackgroundColor3", TH.Secondary)
+            end)
+        end
+    end
+
+    if builtRows == 0 and not config.Title then
+        local emptyRow = Instance.new("TextLabel")
+        emptyRow.Size = UDim2.new(1, 0, 0, rowHeight)
+        emptyRow.BackgroundTransparency = 1
+        emptyRow.Text = "—"
+        emptyRow.TextColor3 = T.TextDim
+        emptyRow.TextSize = 12
+        emptyRow.Font = self.Settings.Font
+        emptyRow.ZIndex = 221
+        emptyRow.LayoutOrder = 1
+        emptyRow.Parent = frame
+    end
+
+    -- Lebar tetap, tinggi otomatis mengikuti jumlah baris (UIListLayout)
+    frame.Size = UDim2.new(0, 210, 0, 0)
+    frame.AutomaticSize = Enum.AutomaticSize.Y
+
+    MakeDraggable(frame, frame, window)
+
+    -- Setelah selesai drag: clamp ke viewport + dock ke tepi bila dekat
+    AddConnection(UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and
+           input.UserInputType ~= Enum.UserInputType.Touch then return end
+        if not frame or not frame.Parent then return end
+        local abs = frame.AbsolutePosition
+        local size = frame.AbsoluteSize
+        if size.X <= 0 or size.Y <= 0 then return end
+        local vp = GetViewportSize()
+        local margin = 10
+        local snapZone = 40
+
+        local x = math.clamp(abs.X, 0, math.max(0, vp.X - size.X))
+        local y = math.clamp(abs.Y, 0, math.max(0, vp.Y - size.Y))
+
+        local distLeft, distRight = math.abs(x), math.abs((x + size.X) - vp.X)
+        if distLeft < snapZone or distRight < snapZone then
+            x = (distLeft <= distRight) and margin or (vp.X - size.X - margin)
+        end
+        local distTop, distBottom = math.abs(y), math.abs((y + size.Y) - vp.Y)
+        if distTop < snapZone or distBottom < snapZone then
+            y = (distTop <= distBottom) and margin or (vp.Y - size.Y - margin)
+        end
+
+        frame.Position = UDim2.fromOffset(x, y)
+    end))
+
+    function widget:Show()
+        frame.Visible = true
+    end
+
+    function widget:Hide()
+        frame.Visible = false
+    end
+
+    function widget:SetText(rowIndex, newText)
+        local row = self.Rows[rowIndex]
+        if row and row.SetText then row:SetText(newText) end
+    end
+
+    function widget:Destroy()
+        for i, mw in ipairs(window.MiniWidgets or {}) do
+            if mw == widget then table.remove(window.MiniWidgets, i) break end
+        end
+        pcall(function() frame:Destroy() end)
+    end
+
+    return widget
+end
+
 -- ═══════════════════════════════════════════════════════════
 -- NOTIFICATION SYSTEM
 -- ═══════════════════════════════════════════════════════════
@@ -2245,7 +2694,8 @@ local function ReflowNotifications()
     end
 end
 
-function BloxHub:Notify(title, message, duration, notifType)
+-- Dijalankan lewat RunClean (thread bersih) — lihat CLEAN-THREAD DISPATCHER.
+local function NotifyImpl(self, title, message, duration, notifType)
     duration = duration or 3
     notifType = notifType or "Info"
 
@@ -2329,6 +2779,10 @@ function BloxHub:Notify(title, message, duration, notifType)
     end)
 
     return record
+end
+
+function BloxHub:Notify(title, message, duration, notifType)
+    return RunClean(NotifyImpl, self, title, message, duration, notifType)
 end
 
 -- ═══════════════════════════════════════════════════════════
