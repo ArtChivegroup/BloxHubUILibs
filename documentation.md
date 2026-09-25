@@ -1,6 +1,6 @@
-# BloxHub GUI Framework v3.1
+# BloxHub GUI Framework v3.3
 
-A single-file, component UI library for Roblox. It runs on the engine's own widgets, which keeps it usable on PC, mobile, tablet, and console without you shipping separate builds. Version 3.1.0.
+A single-file, component UI library for Roblox. It runs on the engine's own widgets, which keeps it usable on PC, mobile, tablet, and console without you shipping separate builds. Version 3.3.0.
 
 ## Features
 
@@ -13,6 +13,11 @@ A single-file, component UI library for Roblox. It runs on the engine's own widg
 - Notifications pile up in a stack without hiding each other.
 - Cleanup methods free the input connections those elements opened.
 - Layout re-flows when the client window resizes or a phone rotates, web-style.
+- Built-in window minimize/restore with a draggable floating restore pill, plus an optional mini widget for compact always-on controls.
+- Dropdown lists clamp to the viewport and lift above other ScreenGuis while open; `BloxHub:SetTopMost` pins the whole framework on top.
+- Dropdown `Refresh` accepts both `row.Refresh(list)` and `row:Refresh(list)`.
+- Component creation runs through a clean thread created at load, so a `require` of a game module mid-build no longer kills the rest of the UI.
+
 
 ## Loading
 
@@ -57,6 +62,7 @@ The `Size` is a hint. On a phone the width clamps to fit, and the height shrinks
 | `config.Resizable` | boolean | Lets a user drag from the bottom-right corner. Off by default. |
 | `config.MinSize` | UDim2 | Floor for resizing. Defaults to 320x200. |
 | `config.Visible` | boolean | Show at load or not. Defaults to true. |
+| `config.MinimizeButton` | boolean | Header minimize button uses the official Minimize/Restore path (floating restore pill). Without it the header button keeps its legacy toggle behavior. Defaults to false. |
 
 ## Window methods
 
@@ -76,6 +82,53 @@ hk:Enable()
 ```
 
 `CreatePopup(title, config)` builds a modal. See the Popup section below.
+
+### Minimize & restore
+
+`Minimize()` hides the window and shows a draggable floating pill (via `CreateFloatingIcon`, created for you on the first minimize). Clicking the pill restores the window. `Restore()` brings it back, and `IsMinimized()` reports the state. These are additive; the header button keeps its old toggle behavior unless you pass `MinimizeButton = true` to `CreateWindow`.
+
+```lua
+MainWindow:Minimize()
+print(MainWindow:IsMinimized())   -- true
+MainWindow:Restore()
+```
+
+`Toggle`, `Show`, and `Hide` still work exactly as before. Showing a minimized window through any of them clears the minimized state.
+
+### CreateMiniWidget
+
+`window:CreateMiniWidget(config)` builds a small always-on overlay — quick controls and a status line without opening the full window. It is draggable, clamps to the viewport when dragged near an edge, and docks to the nearest edge if you drop it close enough.
+
+| Key | Type | What it does |
+|-----|------|--------------|
+| `config.Title` | string | Optional header row with an accent underline. |
+| `config.Position` | UDim2 | Start position. Defaults to the bottom-right corner. |
+| `config.Rows` | table | Array of row configs, in order. |
+
+Row configs:
+
+| Type | Keys | Methods on the returned row |
+|------|------|------------------------------|
+| `"Toggle"` | `Text`, `Default`, `Callback(on)` | `GetValue()`, `SetValue(bool)` |
+| `"Label"` | `Text` | `SetText(s)` |
+
+The widget itself returns `{ Frame, Show, Hide, Destroy, SetText, Rows }`. `SetText(rowIndex, text)` updates a label row, and `Rows` is indexed the same way as the `Rows` you passed in (the title row does not shift the indexes). Widgets register with their window and are destroyed by `window:Destroy()`.
+
+```lua
+local mini = MainWindow:CreateMiniWidget({
+    Title = "FARM",
+    Rows = {
+        { Type = "Toggle", Text = "Farm", Default = false, Callback = function(on)
+            print("farm:", on)
+        end },
+        { Type = "Label",  Text = "Kills: 0" },
+    },
+})
+
+mini.Rows[2]:SetText("Kills: 1")   -- update the status line
+mini:Hide()
+mini:Show()
+```
 
 ## Component API
 
@@ -122,7 +175,7 @@ local k, inputType = kb:GetKey()
 
 ### AddDropdown
 
-`tab:AddDropdown(text, options, callback)` lists choices; the selected one keeps a small accent bar. It opens upward so it never clips behind the screen edge.
+`tab:AddDropdown(text, options, callback)` lists choices; the selected one keeps a small accent bar. The list opens below the button, flips to open upward when there is no room left, and always clamps to the viewport. While the list is open the framework raises its `DisplayOrder` so it sits above ScreenGuis your script owns, then restores the previous layering when the list closes.
 
 ```lua
 local dd = mainTab:AddDropdown("Target", {"Head", "Torso", "Random"}, function(sel) end)
@@ -131,6 +184,8 @@ dd:SetValue("Torso")
 dd:Refresh({"New", "List of options"})
 dd:Destroy()
 ```
+
+`Refresh(list)` accepts both call styles since v3.3.0 — `dd.Refresh(list)` (dot) and `dd:Refresh(list)` (colon) both replace the option list. Before 3.3.0 a colon call silently emptied the list; old scripts using the dot style behave exactly as they always have.
 
 ### AddTextBox
 
@@ -183,6 +238,19 @@ BloxHub:CreateFloatingIcon(MainWindow, {
     ShowOnMinimize = true
 })
 ```
+
+The pill is draggable and clicking it restores a minimized window (`Restore()`) or toggles one that was hidden the legacy way (`Toggle()`).
+
+### SetTopMost
+
+`BloxHub:SetTopMost(enabled)` pins the framework's ScreenGui above every ScreenGui your script owns (overlays, pills, custom HUDs) by raising its `DisplayOrder` to 10000. Call it with `false` to release and restore the default layering (999).
+
+```lua
+BloxHub:SetTopMost(true)    -- framework always on top
+BloxHub:SetTopMost(false)   -- back to default (999)
+```
+
+You rarely need this: while a dropdown list is open the framework lifts its `DisplayOrder` on its own and puts it back when the list closes. Use `SetTopMost` only when you want the entire window pinned above your own overlays permanently.
 
 ### Tab strip scroll steppers (custom)
 
@@ -443,12 +511,30 @@ BloxHub.Settings.Type = { Caption = 12, Body = 13, BodyStrong = 14, Header = 17,
 
 They're the reference scale for future components; the window chrome stays byte-for-byte where a script depends on visuals like the default shadow, which is now a soft aura plus a crisp core rather than a single flat block.
 
+## Clean-thread dispatch (the `require` caveat)
+
+If your script calls `require` on a game module inside the same thread that is building the UI, that thread can lose its Instance capability — in older versions the next components failed with `The current thread cannot access 'Instance' (lacking capability Plugin)` and the UI stopped half-built.
+
+Since v3.3.0 the framework runs every public creation call — `CreateWindow`, `CreateTab`, every `Add*`, `Notify`, `CreateFloatingIcon`, `CreatePopup`, `CreateMiniWidget`, the layout helpers, and dropdown `Refresh` — through a dispatcher coroutine that is created once at load time, before your script has a chance to `require` anything. Instance creation happens inside that clean thread, so a mid-build `require` no longer breaks the UI.
+
+The dispatch is fully synchronous (`coroutine.resume`/`yield`): call order, timing, return values, and error messages are unchanged, and if the dispatcher ever dies the call falls back to running directly in the caller thread — the pre-3.3.0 behavior.
+
+The old advice still stands: prefer `require`-ing game modules inside `task.spawn` after the UI is built. It keeps your own module code out of the same capability trouble.
+
 ## Backward compatibility
 
-The design pass was additive on purpose. No public function was removed, renamed, or re-signed, and no default return value changed. A script written against an earlier link should run unchanged and simply render with the tidier default look.
+Every release is additive on purpose. No public function was removed, renamed, or re-signed, and no default return value changed. A script written against an earlier link should run unchanged — v3.3.0 only writes new state fields that old scripts never read, and the header minimize button keeps its legacy toggle behavior unless `MinimizeButton = true` is passed.
 
 ## Lifecycle scoping
 
-Three levels of cleanup exist. `window:Destroy()` removes one window and all its connections. An element's `Destroy()` removes a single row and the input hooks it registered. `BloxHub:Destroy()` clears everything at once, connections included.
+Three levels of cleanup exist. `window:Destroy()` removes one window, all its connections, its mini widgets, and its floating icon. An element's `Destroy()` removes a single row and the input hooks it registered. `BloxHub:Destroy()` clears everything at once, connections included.
+
+## License
+
+Copyright (C) 2026 ArtChiveGroup — BloxHub Script.
+
+This project is licensed under the **GNU General Public License v3.0** (GPL-3.0). The full license text lives in the [`LICENSE`](LICENSE) file; see <https://www.gnu.org/licenses/gpl-3.0.html> for the canonical copy.
+
+In short: you may use, study, share, and modify this library — including inside your own Roblox scripts — but derived works that you distribute must stay under GPL-3.0 with source available. The license applies to every file in this repository (`source.lua`, `example.lua`, `documentation.md`, `README.md`, `tests/`).
 
 For a worked example that presses every component, read `example.lua` in this repo.

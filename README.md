@@ -4,9 +4,9 @@ A single-file GUI framework for Roblox. You load `source.lua`, you make a window
 
 Version 3.3.0.
 
-## The three files
+## The files
 
-`source.lua` is the library itself. `example.lua` builds a window and runs through every component so you can see the calls in context. `documentation.md` is the API notes. That's the whole repo.
+`source.lua` is the library itself. `example.lua` builds a window and runs through every component so you can see the calls in context. `documentation.md` is the API notes, updated for 3.3.0. `tests/` holds the Luau unit tests for the dispatcher and the dropdown `Refresh` call styles. `LICENSE` carries the project license — see the License section below.
 
 ## What it does
 
@@ -63,3 +63,11 @@ Element: `AddButton`, `AddToggle`, `AddSlider`, `AddKeybind`, `AddDropdown`, `Ad
 ## Notice
 
 This is a UI layer you run inside your own executor. What you can do with it depends on where you run it, so keep use within the terms of service of the platform you're on.
+
+## License
+
+Copyright (C) 2026 ArtChiveGroup — BloxHub Script.
+
+BloxHubUILibs is free software: you can redistribute it and/or modify it under the terms of the **GNU General Public License v3.0** (GPL-3.0), as published by the Free Software Foundation. The full text is in the [`LICENSE`](LICENSE) file, and the canonical copy lives at <https://www.gnu.org/licenses/gpl-3.0.html>.
+
+There is no warranty for the library, to the extent permitted by law. If you distribute a modified version, it must stay under GPL-3.0 with its source available.

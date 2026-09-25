@@ -1,10 +1,14 @@
 --[[
     ╔═══════════════════════════════════════════════════════════╗
-    ║           BloxHub GUI Framework v3.2                      ║
+    ║           BloxHub GUI Framework v3.3                      ║
     ║           Universal Roblox GUI System                     ║
-    ║           Author: BloxHub                                 ║
+    ║           Author: ArtChiveGroup (BloxHub Script)          ║
     ║           Pure Roblox Engine UI Components                ║
     ║           Cross-Device Compatible (PC/Mobile/Console)     ║
+    ║                                                           ║
+    ║           Copyright (C) 2026 ArtChiveGroup                ║
+    ║           License: GNU GPL v3 — see the LICENSE file      ║
+    ║           https://github.com/ArtChivegroup/BloxHubUILibs  ║
     ╚═══════════════════════════════════════════════════════════╝
 ]]
 
